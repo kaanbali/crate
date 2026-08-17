@@ -1,0 +1,4 @@
+﻿Country,Track Identifier,Media type,Date Played,Hours,Play Duration Milliseconds,End Reason Type,Source Type,Play Count,Skip Count,Ignore For Recommendations,Track Reference,Track Description
+United Kingdom,978194965,AUDIO,20260610,"18, 19",1664000,NATURAL_END_OF_TRACK,IPHONE,7,1,,111,Nick Drake - Pink Moon
+United Kingdom,978194966,AUDIO,20260610,"18",664000,NATURAL_END_OF_TRACK,IPHONE,4,0,,112,Portishead - Glory Box
+United Kingdom,978194967,AUDIO,20260611,"9, 10",264000,TRACK_SKIPPED_FORWARDS,IPHONE,1,5,,113,Some Artist - A Track I Always Skip

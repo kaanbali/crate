@@ -1,0 +1,18 @@
+{
+  "name": "crate",
+  "version": "1.0.0",
+  "description": "Turn music playlist exports into a vinyl shopping list with live Discogs prices — single-file web app",
+  "type": "module",
+  "scripts": {
+    "start": "npx serve . || python3 -m http.server 8080",
+    "test": "npm run test:formats && npm run test:pricing && npm run test:e2e && npm run test:resilience && npm run test:coverflow",
+    "test:formats": "node tests/formats.test.mjs",
+    "test:pricing": "node tests/pricing.test.mjs",
+    "test:e2e": "node tests/e2e.test.mjs",
+    "test:coverflow": "node tests/coverflow.test.mjs",
+    "test:resilience": "node tests/resilience.test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.45.0"
+  }
+}

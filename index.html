@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crate — turn your playlists into vinyl</title>
+<style>
+  :root{
+    --bg:#14110f; --bg2:#1b1714; --card:#211c18; --line:#332b25;
+    --ink:#f4efe7; --muted:#a2968a; --accent:#e8734a; --accent2:#e8c07a;
+    --good:#7fbf7f; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:radial-gradient(1200px 600px at 15% -10%, #241d18 0%, var(--bg) 60%) fixed, var(--bg);
+    color:var(--ink);
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+
+  header{display:flex;align-items:center;gap:14px;margin-bottom:6px;flex-wrap:wrap}
+  .logo{width:42px;height:42px;flex:0 0 42px}
+  h1{font-family:Georgia,"Iowan Old Style",serif;font-size:30px;letter-spacing:.2px;margin:0;font-weight:600}
+  .tag{color:var(--muted);font-size:15px;margin:2px 0 26px}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+  .drop{
+    border:1.5px dashed #453a32;border-radius:var(--radius);padding:26px 20px;text-align:center;
+    transition:.18s;cursor:pointer;background:linear-gradient(180deg,#1d1815,#1a1613)
+  }
+  .drop.over{border-color:var(--accent);background:#2a1f19}
+  .drop h3{margin:0 0 6px;font-size:17px;font-weight:600}
+  .drop p{margin:0;color:var(--muted);font-size:13.5px}
+  .or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px;margin:16px 0;text-transform:uppercase;letter-spacing:.12em}
+  .or:before,.or:after{content:"";height:1px;background:var(--line);flex:1}
+  textarea{
+    width:100%;min-height:96px;resize:vertical;background:#191512;color:var(--ink);
+    border:1px solid var(--line);border-radius:10px;padding:12px;font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace
+  }
+  textarea::placeholder{color:#6b6058}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  button,.btn{
+    background:var(--accent);color:#1a0f09;border:0;border-radius:9px;padding:10px 16px;
+    font-size:14px;font-weight:650;cursor:pointer;transition:.15s;font-family:inherit
+  }
+  button:hover{filter:brightness(1.08)}
+  button:disabled{opacity:.45;cursor:not-allowed;filter:none}
+  .ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  .ghost:hover{border-color:var(--accent);background:#241c17}
+  .mini{padding:7px 12px;font-size:13px}
+
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:26px 0 16px}
+  input[type=search],select,input[type=text]{
+    background:#191512;color:var(--ink);border:1px solid var(--line);border-radius:9px;
+    padding:9px 12px;font:14px inherit;font-family:inherit
+  }
+  input[type=search]{min-width:200px;flex:1}
+  label.sm{color:var(--muted);font-size:13px}
+
+  .stats{color:var(--muted);font-size:13.5px;margin:0 0 14px}
+  .stats b{color:var(--ink)}
+
+  .bar{height:5px;background:#2a231e;border-radius:99px;overflow:hidden;margin:10px 0 0;display:none}
+  .bar.on{display:block}
+  .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));width:0;transition:width .3s}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+  .album{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:14px;display:flex;gap:13px;transition:.15s;position:relative;overflow:hidden
+  }
+  .album:hover{border-color:#4a3d34}
+  .album.got{opacity:.42}
+  .art{
+    width:88px;height:88px;flex:0 0 88px;border-radius:8px;background:#2a231e;
+    object-fit:cover;display:block
+  }
+  .art-ph{display:flex;align-items:center;justify-content:center}
+  .meta{min-width:0;flex:1}
+  .art-title{font-weight:650;font-size:15px;margin:0 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .art-artist{color:var(--muted);font-size:13.5px;margin:0 0 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pill{
+    display:inline-block;background:#2b231d;color:var(--muted);border-radius:99px;
+    padding:2px 9px;font-size:11.5px;margin:0 5px 6px 0
+  }
+  .price{
+    font-size:15px;font-weight:700;color:var(--accent2);margin:2px 0 7px;display:flex;
+    align-items:baseline;gap:8px;flex-wrap:wrap
+  }
+  .price small{font-weight:500;color:var(--muted);font-size:12px}
+  .price.none{color:var(--muted);font-size:13px;font-weight:500}
+  .price.loading{color:var(--muted);font-size:13px;font-weight:500}
+  .links{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+  .links a{
+    color:var(--muted);text-decoration:none;font-size:12px;border:1px solid var(--line);
+    border-radius:7px;padding:4px 8px;transition:.15s;white-space:nowrap
+  }
+  .links a:hover{color:var(--ink);border-color:var(--accent);background:#241c17}
+  .links a.key{color:var(--accent);border-color:#4a3226}
+  .tick{
+    position:absolute;top:10px;right:10px;background:transparent;border:1px solid var(--line);
+    color:var(--muted);width:26px;height:26px;border-radius:7px;font-size:13px;padding:0;line-height:1
+  }
+  .tick:hover{border-color:var(--good);color:var(--good)}
+  .album.got .tick{color:var(--good);border-color:var(--good)}
+
+  details.adv{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  details.adv summary{cursor:pointer;color:var(--muted);font-size:13px;list-style:none}
+  details.adv summary::-webkit-details-marker{display:none}
+  details.adv summary:before{content:"⌄ ";color:var(--accent)}
+  .adv-body{margin-top:12px;color:var(--muted);font-size:13px}
+  .adv-body input[type=text]{width:100%;max-width:340px;margin-top:6px}
+
+  /* ---- Cover Flow ---- */
+  .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex:0 0 auto}
+  .seg button{background:transparent;color:var(--muted);border:0;border-radius:0;padding:9px 13px;font-size:13px;font-weight:600}
+  .seg button:hover{filter:none;color:var(--ink)}
+  .seg button.on{background:#2b231d;color:var(--accent2)}
+  #flow{display:none}
+  #flow.on{display:block}
+  .stage{
+    touch-action:pan-y;
+    position:relative;height:440px;perspective:1100px;perspective-origin:50% 36%;
+    overflow:hidden;border-radius:var(--radius);border:1px solid #241e19;
+    background:
+      radial-gradient(1000px 460px at 50% 26%, #1d1815 0%, #0b0908 72%),
+      #0b0908;
+  }
+  .stage:after{ /* glassy floor line */
+    content:"";position:absolute;left:0;right:0;top:330px;height:1px;
+    background:linear-gradient(90deg, transparent, rgba(244,239,231,.06) 30%, rgba(244,239,231,.06) 70%, transparent);
+    pointer-events:none;
+  }
+  .fitem{
+    position:absolute;left:50%;top:56px;width:272px;height:272px;margin-left:-136px;
+    transform-style:preserve-3d;cursor:pointer;will-change:transform;
+    transition:transform .5s cubic-bezier(.22,.68,.32,1), opacity .5s;
+  }
+  .fitem .face{width:100%;height:100%;display:block;object-fit:cover;background:#241e19;
+    box-shadow:0 10px 40px rgba(0,0,0,.6);border:1px solid rgba(244,239,231,.07)}
+  .fitem div.face svg{width:100%;height:100%;display:block}
+  .fitem .refl{
+    position:absolute;top:calc(100% + 2px);left:0;width:100%;height:100%;
+    transform:scaleY(-1);pointer-events:none;object-fit:cover;opacity:.9;border:1px solid transparent;
+    -webkit-mask-image:linear-gradient(to top, rgba(0,0,0,.5) 0%, transparent 58%);
+            mask-image:linear-gradient(to top, rgba(0,0,0,.5) 0%, transparent 58%);
+  }
+  .flow-info{text-align:center;padding:20px 14px 4px}
+  .flow-info h2{font-family:Georgia,"Iowan Old Style",serif;font-size:23px;margin:0 0 3px;font-weight:600}
+  .flow-info .fartist{color:var(--muted);margin:0 0 10px;font-size:14.5px}
+  .flow-info .price{justify-content:center}
+  .flow-info .links{justify-content:center;margin-top:8px}
+  .scrub{
+    width:min(430px,82%);margin:14px auto 0;display:block;-webkit-appearance:none;appearance:none;
+    height:4px;border-radius:99px;background:#2a231e;outline:none
+  }
+  .scrub::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer}
+  .scrub::-moz-range-thumb{width:14px;height:14px;border:0;border-radius:50%;background:var(--accent);cursor:pointer}
+  .fcount{color:#6d635b;font-size:12px;text-align:center;margin:8px 0 0}
+  @media(max-width:520px){
+    .stage{height:305px;perspective:800px}
+    .stage:after{top:242px}
+    .fitem{width:186px;height:186px;margin-left:-93px;top:38px}
+    .flow-info h2{font-size:19px}
+  }
+
+  footer{color:#6d635b;font-size:12.5px;margin-top:44px;border-top:1px solid var(--line);padding-top:16px;line-height:1.7}
+  .empty{color:var(--muted);text-align:center;padding:50px 20px}
+  .hide{display:none!important}
+  @media(max-width:520px){
+    h1{font-size:24px} .wrap{padding:20px 14px 60px}
+    .grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <svg class="logo" viewBox="0 0 100 100" aria-hidden="true">
+      <circle cx="50" cy="50" r="47" fill="#1a1512" stroke="#3a302a" stroke-width="1.5"/>
+      <circle cx="50" cy="50" r="38" fill="none" stroke="#332b25" stroke-width="1"/>
+      <circle cx="50" cy="50" r="31" fill="none" stroke="#332b25" stroke-width="1"/>
+      <circle cx="50" cy="50" r="24" fill="none" stroke="#332b25" stroke-width="1"/>
+      <circle cx="50" cy="50" r="15" fill="#e8734a"/>
+      <circle cx="50" cy="50" r="3.4" fill="#14110f"/>
+    </svg>
+    <div>
+      <h1>Crate</h1>
+    </div>
+  </header>
+  <p class="tag">Drop in a playlist export. Get every album on it, with real vinyl prices and where to buy.</p>
+
+  <div class="panel">
+    <div class="drop" id="drop">
+      <h3>Drop a playlist or library file here</h3>
+      <p>Apple Music &amp; iTunes exports (.txt / .xml), your Apple privacy data download, or a CSV from Exportify, Soundiiz or TuneMyMusic — or click to browse</p>
+      <input type="file" id="file" accept=".csv,.tsv,.txt,.xml" class="hide" multiple>
+    </div>
+
+    <div class="or">or paste</div>
+    <textarea id="paste" placeholder="Paste CSV text, or just one album per line:&#10;Radiohead - In Rainbows&#10;Miles Davis - Kind of Blue&#10;Fleetwood Mac – Rumours"></textarea>
+    <div class="row" style="margin-top:12px">
+      <button id="go">Build my crate</button>
+      <button class="ghost" id="demo">Try a sample</button>
+    </div>
+
+    <details class="adv">
+      <summary>How do I export from Apple Music?</summary>
+      <div class="adv-body">
+        <p style="margin:0 0 8px"><b>One playlist</b> — Music app on Mac or iTunes on Windows → select the playlist → <b>File → Library → Export Playlist…</b> and choose <i>Text files</i>. Drop the .txt straight in.</p>
+        <p style="margin:0 0 8px"><b>Your whole library</b> — <b>File → Library → Export Library…</b> gives a Library.xml. Works here too, but it's every album you own, so expect a long list.</p>
+        <p style="margin:0 0 8px"><b>Everything you've streamed</b> — request your data at <a href="https://privacy.apple.com" target="_blank" rel="noopener" style="color:var(--accent)">privacy.apple.com</a> → <i>Apple Media Services information</i>. Apple emails it in a few days. From the zip, <b>Apple Music - Play History Daily Tracks.csv</b> is the one to use — it's small and already counts your plays. Recently Played Tracks and Play Activity work as well.</p>
+        <p style="margin:0">On iPhone only? There's no export there — use a free converter like Soundiiz or TuneMyMusic and drop its CSV in.</p>
+      </div>
+    </details>
+
+    <details class="adv">
+      <summary>Speed &amp; settings</summary>
+      <div class="adv-body">
+        <p style="margin:0 0 10px">Price lookups run against Discogs. Without a key you get <b>25 requests a minute</b> (about 11 albums), which is fine for a small batch. A free personal access token lifts that to 60/min and adds cover art from Discogs.</p>
+        <label class="sm">Discogs personal access token (optional — never leaves this page)</label><br>
+        <input type="text" id="token" placeholder="paste token here" autocomplete="off" spellcheck="false">
+        <p style="margin:10px 0 0">Get one at <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener" style="color:var(--accent)">discogs.com/settings/developers</a> → “Generate token”.</p>
+      </div>
+    </details>
+  </div>
+
+  <div id="results" class="hide">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Filter albums…">
+      <select id="sort">
+        <option value="tracks" id="optTracks">Most tracks in playlist</option>
+        <option value="artist">Artist A–Z</option>
+        <option value="album">Album A–Z</option>
+        <option value="price">Cheapest vinyl first</option>
+        <option value="want">Most wanted on Discogs</option>
+      </select>
+      <select id="cur">
+        <option value="GBP">£ GBP</option>
+        <option value="EUR">€ EUR</option>
+        <option value="USD">$ USD</option>
+      </select>
+      <div class="seg" aria-label="View">
+        <button id="vGrid" class="on" aria-pressed="true">Grid</button>
+        <button id="vFlow" aria-pressed="false">Cover Flow</button>
+      </div>
+      <button id="fetch">Check vinyl prices</button>
+      <button class="ghost mini hide" id="stop">Stop</button>
+      <button class="ghost mini" id="export">Export CSV</button>
+    </div>
+    <p class="stats" id="stats"></p>
+    <div class="bar" id="bar"><i></i></div>
+    <div class="grid" id="grid" style="margin-top:16px"></div>
+    <div id="flow" style="margin-top:16px">
+      <div class="stage" id="stage"></div>
+      <div class="flow-info" id="finfo"></div>
+      <input type="range" class="scrub" id="scrub" min="0" max="0" value="0" step="1" aria-label="Browse albums">
+      <p class="fcount" id="fcount"></p>
+    </div>
+    <div class="empty hide" id="empty">Nothing matches that filter.</div>
+  </div>
+
+  <footer>
+    Prices and pressing counts come live from the <b>Discogs</b> marketplace; cover art from the iTunes Search API. Nothing you paste is uploaded anywhere — it all runs in this page.<br>
+    A price shown is the lowest current asking price, excluding postage, for the cheapest in-stock copy among that album's most widely-held vinyl pressings — so it leans towards an in-print reissue rather than a collector's original. Click through to see every pressing.
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ---------------- state ---------------- */
+let ALBUMS = [];
+let RUNNING = false;
+let ABORT = false;
+
+const $ = id => document.getElementById(id);
+const CUR_SYM = {GBP:"£", EUR:"€", USD:"$"};
+
+/* ---------------- delimited-text parsing ---------------- */
+function detectDelim(text){
+  const line = text.split(/\r?\n/).find(l => l.trim().length) || "";
+  const counts = {",":0, "\t":0, ";":0};
+  let inQ = false;
+  for (const ch of line){
+    if (ch === '"') inQ = !inQ;
+    else if (!inQ && ch in counts) counts[ch]++;
+  }
+  return Object.keys(counts).reduce((a,b) => counts[b] > counts[a] ? b : a, ",");
+}
+
+function parseDelimited(text, delim){
+  const rows = [];
+  let row = [], field = "", inQ = false;
+  for (let i = 0; i < text.length; i++){
+    const c = text[i];
+    if (inQ){
+      if (c === '"'){
+        if (text[i+1] === '"'){ field += '"'; i++; }
+        else inQ = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === delim){ row.push(field); field = ""; }
+      else if (c === "\n"){ row.push(field); rows.push(row); row = []; field = ""; }
+      else if (c === "\r"){ /* skip */ }
+      else field += c;
+    }
+  }
+  if (field.length || row.length){ row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim().length));
+}
+
+/* ---------------- column detection ---------------- */
+const ALBUM_KEYS  = ["album name","album title","album","collectionname","release","release name"];
+const ARTIST_KEYS = ["album artist name(s)","album artist","albumartist","artist name(s)","artist name","artist(s)","artist","artistname","performer"];
+const TRACK_KEYS  = ["track name","track title","song title","song name","title","name","track"];
+const YEAR_KEYS   = ["album release date","release date","track year","year","album year"];
+
+function cleanHeader(x){
+  return String(x).replace(/^﻿/,"").replace(/’/g,"'").trim().toLowerCase();
+}
+function pickCol(headers, keys){
+  const h = headers.map(cleanHeader);
+  for (const k of keys){ const i = h.indexOf(k); if (i !== -1) return i; }
+  for (const k of keys){ const i = h.findIndex(x => x.includes(k)); if (i !== -1) return i; }
+  return -1;
+}
+function hdrMap(headers){
+  const m = {};
+  headers.forEach((h,i) => { const c = cleanHeader(h); if (!(c in m)) m[c] = i; });
+  return m;
+}
+
+/* Apple ships at least six different export shapes and they disagree with each
+   other about what a column is called — so sniff the header signature. */
+function detectFormat(H){
+  const has = k => k in H;
+  if (has("song name") && has("play duration milliseconds")) return "playActivity";
+  if (has("content name") && has("artist name")) return "playActivityLegacy";
+  if (has("track description") && has("date played")) return "dailyTracks";
+  if (has("track description")) return "recentlyPlayed";
+  if (has("title") && has("album") && (has("track play count") || has("album artist"))) return "libraryTracks";
+  return "generic";
+}
+
+const UNITS = {
+  playActivity:"plays", playActivityLegacy:"plays", dailyTracks:"plays",
+  recentlyPlayed:"plays", libraryTracks:"tracks in your library",
+  plist:"tracks in your library", generic:"tracks in your playlist"
+};
+
+// "Joe Hisaishi - Spirited Away" -> ["Joe Hisaishi", "Spirited Away"]
+function splitDash(s){
+  const str = String(s||"");
+  const i = str.indexOf(" - ");
+  if (i === -1) return [null, str.trim()];
+  return [str.slice(0,i).trim(), str.slice(i+3).trim()];
+}
+const num = v => { const n = parseInt(String(v||"").replace(/[^\d-]/g,""),10); return isNaN(n) ? 0 : n; };
+
+// A play only counts if it actually got listened to.
+function realPlay(row, H){
+  const et = H["event type"] != null ? row[H["event type"]] : "";
+  if (et && et !== "PLAY_END") return false;                       // PLAY_START/LYRIC_DISPLAY duplicate every listen
+  const end = H["end reason type"] != null ? row[H["end reason type"]] : "";
+  if (end === "FAILED_TO_LOAD") return false;
+  if (H["media type"] != null && row[H["media type"]] === "VIDEO") return false;
+  const played = num(H["play duration milliseconds"] != null ? row[H["play duration milliseconds"]] : "");
+  const total  = num(H["media duration in milliseconds"] != null ? row[H["media duration in milliseconds"]] : "");
+  if (!played) return false;
+  return played >= 30000 || (total > 0 && played / total >= 0.5);
+}
+
+/* ---------------- normalising ---------------- */
+const NOISE = /\((?:[^()]*\b(?:deluxe|remaster(?:ed)?|expanded|anniversary|edition|version|explicit|clean|bonus|reissue|mono|stereo|special|super\s*deluxe|collector'?s|legacy|platinum|gold|remix(?:ed)?|live|karaoke|instrumental|\d{4}(?:\s*remaster)?)\b[^()]*)\)/gi;
+const NOISE_BR = /\[(?:[^\[\]]*\b(?:deluxe|remaster(?:ed)?|expanded|anniversary|edition|explicit|clean|bonus|reissue|mono|stereo)\b[^\[\]]*)\]/gi;
+const TAIL = /\s[-–—]\s(?:.*\b(?:remaster(?:ed)?|deluxe|expanded|edition|version|mix|single|ep|mono|stereo|reissue|anniversary)\b.*)$/i;
+
+function cleanTitle(s){
+  return String(s||"")
+    .replace(NOISE," ").replace(NOISE_BR," ").replace(TAIL,"")
+    .replace(/\s+/g," ").trim();
+}
+function norm(s){
+  return String(s||"")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase()
+    .replace(/&/g," and ")
+    .replace(/[^a-z0-9]+/g," ")
+    .replace(/\b(the|a|an)\b/g," ")
+    .replace(/\s+/g," ").trim();
+}
+function primaryArtist(s){
+  let a = String(s||"").split(/\s*[,;]\s*|\s+feat\.?\s+|\s+featuring\s+|\s+with\s+/i)[0];
+  return a.replace(/\s+/g," ").trim();
+}
+
+/* ---------------- build album list ---------------- */
+/* Every reader returns raw items: {artist, album, song, plays, year}.
+   album may be missing (play-history files often only name the song) —
+   those get resolved against the iTunes catalogue afterwards. */
+function itemsFromRows(rows){
+  const headers = rows[0];
+  const H = hdrMap(headers);
+  const fmt = detectFormat(H);
+  const body = rows.slice(1);
+  const col = (r, name) => H[name] != null ? String(r[H[name]] || "").trim() : "";
+  const items = [];
+
+  if (fmt === "playActivity"){
+    // 118 columns and not one of them is the track's artist. Album Name is there,
+    // Container Artist Name is only filled in when you played from an album.
+    for (const r of body){
+      if (!realPlay(r, H)) continue;
+      const song = col(r,"song name");
+      if (!song) continue;
+      items.push({artist: col(r,"container artist name") || null,
+                  album: col(r,"album name") || col(r,"container album name") || null,
+                  song, plays:1});
+    }
+  } else if (fmt === "playActivityLegacy"){
+    for (const r of body){
+      if (!realPlay(r, H)) continue;
+      const song = col(r,"content name");
+      if (!song) continue;
+      items.push({artist: col(r,"artist name") || null, album:null, song, plays:1});
+    }
+  } else if (fmt === "dailyTracks"){
+    for (const r of body){
+      const [artist, song] = splitDash(col(r,"track description"));
+      if (!song) continue;
+      const plays = num(col(r,"play count")) || 1;
+      const skips = num(col(r,"skip count"));
+      if (plays <= skips) continue;                       // skipped more than played
+      items.push({artist, album:null, song, plays});
+    }
+  } else if (fmt === "recentlyPlayed"){
+    for (const r of body){
+      const plays = num(col(r,"total plays")) || 1;
+      if (plays <= num(col(r,"total skips"))) continue;
+      // When you played a whole album, Container Description is "Artist - Album" — the good case.
+      if (/album/i.test(col(r,"container type"))){
+        const [artist, album] = splitDash(col(r,"container description"));
+        if (album){ items.push({artist, album, song:null, plays}); continue; }
+      }
+      const [artist, song] = splitDash(col(r,"track description"));
+      if (song) items.push({artist, album:null, song, plays});
+    }
+  } else if (fmt === "libraryTracks"){
+    for (const r of body){
+      if (/video|movie|tv show|podcast|audiobook/i.test(col(r,"content type"))) continue;
+      const album = col(r,"album");
+      const artist = col(r,"album artist") || col(r,"artist");
+      if (!album || !artist) continue;
+      items.push({artist, album, song:col(r,"title") || null, plays:1, year:col(r,"track year")});
+    }
+  } else {
+    // generic playlist CSV/TSV — Exportify, Soundiiz, TuneMyMusic, Apple's text export
+    const ai = pickCol(headers, ALBUM_KEYS);
+    const ri = pickCol(headers, ARTIST_KEYS);
+    const ti = pickCol(headers, TRACK_KEYS);
+    const yi = pickCol(headers, YEAR_KEYS);
+    if (ri === -1) return null;
+    for (const r of body){
+      const artist = (r[ri]||"").trim();
+      const album  = ai !== -1 ? (r[ai]||"").trim() : "";
+      const song   = ti !== -1 ? (r[ti]||"").trim() : "";
+      if (!artist || (!album && !song)) continue;
+      items.push({artist, album: album || null, song: song || null, plays:1,
+                  year: yi !== -1 ? (r[yi]||"") : ""});
+    }
+  }
+  return {items, fmt};
+}
+
+/* iTunes / Music.app "Export Library" gives an Apple plist, not a table. */
+function itemsFromPlist(text){
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length) return null;
+  const root = doc.querySelector("plist > dict");
+  if (!root) return null;
+  const tracks = valueForKey(root, "Tracks");
+  if (!tracks) return null;
+  const items = [];
+  for (const el of tracks.children){
+    if (el.tagName !== "dict") continue;
+    const t = dictToObj(el);
+    const artist = t["Album Artist"] || t["Artist"];
+    const album = t["Album"];
+    if (!artist || !album) continue;
+    items.push({artist, album, song:t["Name"] || null, plays:1, year:t["Year"]});
+  }
+  return items.length ? {items, fmt:"plist"} : null;
+}
+function valueForKey(dict, key){
+  const kids = dict.children;
+  for (let i = 0; i < kids.length; i++){
+    if (kids[i].tagName === "key" && kids[i].textContent === key) return kids[i+1] || null;
+  }
+  return null;
+}
+function dictToObj(d){
+  const o = {}, kids = d.children;
+  for (let i = 0; i < kids.length; i++){
+    if (kids[i].tagName !== "key") continue;
+    const v = kids[i+1];
+    if (!v) break;
+    o[kids[i].textContent] = v.tagName === "true" ? true : v.tagName === "false" ? false : v.textContent;
+    i++;
+  }
+  return o;
+}
+
+function itemsFromLines(text){
+  const items = [];
+  for (const raw of text.split(/\r?\n/)){
+    const line = raw.trim();
+    if (!line) continue;
+    const m = line.split(/\s+[-–—]\s+|\s*\|\s*/);
+    if (m.length < 2) continue;
+    items.push({artist:m[0].trim(), album:m.slice(1).join(" ").trim(), song:null, plays:1});
+  }
+  return items.length ? {items, fmt:"generic"} : null;
+}
+
+/* fold raw items into the ALBUMS list */
+function mergeItems(items, unit){
+  const map = new Map(ALBUMS.map(a => [a.key, a]));
+  for (const it of items){
+    const artist = it.artist ? primaryArtist(it.artist) : null;
+    const album  = it.album ? cleanTitle(it.album) : null;
+    const song   = it.song ? cleanTitle(it.song) : null;
+    if (!album && !song) continue;
+    // no album yet? key on the song for now and look the album up later
+    const pending = !album || !artist;
+    const key = pending ? "?|" + norm(artist||"") + "|" + norm(song||album||"")
+                        : norm(artist) + "|" + norm(album);
+    let a = map.get(key);
+    if (!a){
+      a = {
+        key, artist: artist || "", album: album || "", song, tracks:0, unit,
+        year:(String(it.year||"").match(/\d{4}/)||[""])[0],
+        pending, art:null, state:"idle", price:null, cur:null, forSale:null,
+        pressings:null, want:null, have:null, discogsUrl:null, sellUrl:null, got:false
+      };
+      map.set(key, a);
+    }
+    a.tracks += (it.plays || 1);
+    if (a.unit !== unit) a.unit = unit;
+  }
+  ALBUMS = [...map.values()];
+}
+
+/* once iTunes tells us the real artist/album, re-key and fold duplicates together */
+function rekey(a){
+  const k = norm(a.artist) + "|" + norm(a.album);
+  a.pending = false;
+  if (k === a.key) return;
+  const twin = ALBUMS.find(x => x !== a && x.key === k);
+  if (twin){
+    twin.tracks += a.tracks;
+    if (!twin.art) twin.art = a.art;
+    ALBUMS = ALBUMS.filter(x => x !== a);
+    a.key = k;              // so a re-run against the removed object can't re-merge
+  } else {
+    a.key = k;
+  }
+}
+
+/* ---------------- store links ---------------- */
+const enc = encodeURIComponent;
+function storeLinks(a){
+  const q = a.artist + " " + a.album;
+  return [
+    {name:"Discogs",  url: a.discogsUrl || `https://www.discogs.com/search/?q=${enc(q)}&format_exact=Vinyl&type=release`, key:true},
+    {name:"Marketplace", url: a.sellUrl || `https://www.discogs.com/sell/list?q=${enc(q)}&format=Vinyl`, key:true},
+    {name:"Amazon UK", url:`https://www.amazon.co.uk/s?k=${enc(q + " vinyl lp")}`},
+    {name:"Rough Trade", url:`https://www.roughtrade.com/en-gb/search?q=${enc(q)}`},
+    {name:"Juno", url:`https://www.juno.co.uk/search/?q%5Ball%5D%5B%5D=${enc(q)}&media_type=vinyl`},
+    {name:"eBay UK", url:`https://www.ebay.co.uk/sch/i.html?_nkw=${enc(q + " vinyl lp")}`}
+  ];
+}
+
+/* ---------------- throttled queues ---------------- */
+function makeQueue(gapMs){
+  let last = 0, chain = Promise.resolve();
+  return function run(fn){
+    chain = chain.then(async () => {
+      const wait = Math.max(0, gapMs - (performance.now() - last));
+      if (wait) await new Promise(r => setTimeout(r, wait));
+      last = performance.now();
+      try { return await fn(); } catch(e){ return null; }
+    });
+    return chain;
+  };
+}
+let artQ = makeQueue(1400);
+let discQ = makeQueue(2700);
+
+/* ---------------- cover art + album resolution (iTunes) ---------------- */
+let ART_BUDGET = 400;        // don't hammer iTunes on a whole listening history
+let ART_PAUSE_UNTIL = 0;     // backoff after a 403/429 instead of giving up for good
+let PENDING_LEFT = 0;
+
+const softRender = (() => {   // rekeying reshuffles the list; don't thrash the DOM
+  let t = null;
+  return () => { clearTimeout(t); t = setTimeout(render, 400); };
+})();
+
+async function enrich(a){
+  const wasPending = a.pending;
+  // whatever happens below, a pending album must not stay pending forever
+  const settle = () => {
+    a.enq = false;
+    if (wasPending && a.pending){
+      a.pending = false;
+      PENDING_LEFT = Math.max(0, PENDING_LEFT - 1);
+      paint(a); updateStats();
+    }
+  };
+  try {
+    if (!ALBUMS.includes(a)){ settle(); return; }              // merged away while queued
+    if (ART_BUDGET <= 0 || performance.now() < ART_PAUSE_UNTIL){ settle(); return; }
+    ART_BUDGET--;
+    // Play-history exports name the song but not the album — ask the catalogue.
+    const entity = wasPending && a.song ? "song" : "album";
+    const term = enc([a.artist, entity === "song" ? a.song : (a.album || a.song)].filter(Boolean).join(" "));
+    const r = await fetch(`https://itunes.apple.com/search?term=${term}&entity=${entity}&limit=5`);
+    if (r.status === 403 || r.status === 429){ ART_PAUSE_UNTIL = performance.now() + 90000; settle(); return; }
+    if (!r.ok){ settle(); return; }
+    const d = await r.json();
+    let res = d.results || [];
+
+    // if we know the artist, don't accept a karaoke cover of the right song title
+    const wantArtist = norm(a.artist);
+    if (wantArtist){
+      const match = res.filter(x => {
+        const n = norm(x.artistName || "");
+        return n.includes(wantArtist) || wantArtist.includes(n);
+      });
+      if (match.length) res = match;
+    }
+    if (entity === "song"){
+      res = res.filter(x => !/karaoke|tribute|cover version|made famous/i.test(
+        (x.artistName || "") + " " + (x.collectionName || "")));
+    }
+
+    let best;
+    if (entity === "song"){
+      const wantSong = norm(a.song);
+      best = res.find(x => norm(x.trackName || "") === wantSong) || res[0];
+    } else {
+      const want = norm(a.album);
+      best = res.find(x => {
+        const c = norm(x.collectionName || "");
+        return want && (c.includes(want) || want.includes(c));
+      }) || res[0];
+    }
+
+    if (best){
+      if (wasPending){
+        if (!a.artist && best.artistName) a.artist = primaryArtist(best.artistName);
+        // trust the album the export gave us; only fill a blank
+        if (!a.album && best.collectionName) a.album = cleanTitle(best.collectionName);
+      }
+      if (best.artworkUrl100) a.art = best.artworkUrl100.replace(/100x100bb/, "400x400bb");
+      if (!a.year && best.releaseDate) a.year = best.releaseDate.slice(0,4);
+    }
+
+    if (wasPending){
+      a.pending = false;
+      PENDING_LEFT = Math.max(0, PENDING_LEFT - 1);
+      a.enq = false;
+      if (a.artist && a.album){ rekey(a); softRender(); }
+      else paint(a);
+      updateStats();
+    } else {
+      a.enq = false;
+      paint(a);
+    }
+  } catch(e){ settle(); }
+}
+
+function queueEnrichment(){
+  // resolve unknown albums first, then fill in art; never queue the same album twice
+  const jobs = [...ALBUMS.filter(a => a.pending && !a.enq),
+                ...ALBUMS.filter(a => !a.pending && !a.art && !a.enq)];
+  jobs.forEach(a => { a.enq = true; artQ(() => enrich(a)); });
+  PENDING_LEFT = ALBUMS.filter(a => a.pending).length;
+  updateStats();
+}
+
+/* ---------------- vinyl lookup (Discogs) ---------------- */
+function dgHeaders(){
+  const t = $("token").value.trim();
+  return t ? {Authorization: "Discogs token=" + t} : {};
+}
+async function dgRaw(url, tries){
+  tries = tries || 0;
+  const r = await fetch(url, {headers: dgHeaders()});
+  if (r.status === 429 && tries < 2){
+    await new Promise(res => setTimeout(res, 12000));
+    return dgRaw(url, tries + 1);
+  }
+  if (!r.ok) throw new Error("http " + r.status);
+  return r.json();
+}
+/* every Discogs REQUEST goes through the throttle — an album can make
+   up to 5 calls (search, fallback search, 3 price checks), so pacing
+   per album would blow straight through the 25/min limit */
+function dg(url){
+  return discQ(() => dgRaw(url)).then(v => {
+    if (v === null) throw new Error("request failed");
+    return v;
+  });
+}
+
+function scoreRelease(rel, a){
+  const fmt = (rel.format || []).join(" ").toLowerCase();
+  let s = 0;
+  if (/\blp\b|album/.test(fmt)) s += 40;
+  // strong penalties: a wildly popular 7" of the title track must not outrank the LP
+  if (/single|7"|promo|test pressing|acetate/.test(fmt)) s -= 80;
+  if (/box set/.test(fmt)) s -= 60;
+  if (/picture disc/.test(fmt)) s -= 40;
+  if (/uk|europe/i.test(rel.country || "")) s += 6;
+  const have = (rel.community && rel.community.have) || 0;
+  s += Math.log10(have + 1) * 22;
+  const t = norm(rel.title || "");
+  const na = norm(a.album), nr = norm(a.artist);
+  if (na && t.includes(na)) s += 15;      // norm("") is a substring of anything —
+  if (nr && t.includes(nr)) s += 8;       // don't hand the bonus to every candidate
+  return s;
+}
+
+async function fetchVinyl(a, cur){
+  if (!a.album){ a.state = "none"; paint(a); return; }   // never price an empty title
+  a.state = "loading"; paint(a);
+  try{
+    const base = "https://api.discogs.com/database/search?type=release&per_page=50";
+    let d = await dg(`${base}&format=Vinyl&artist=${enc(a.artist)}&release_title=${enc(a.album)}`);
+    let res = (d.results || []);
+    let counted = res.length ? ((d.pagination && d.pagination.items) || res.length) : 0;
+
+    if (!res.length){
+      // Discogs' vinyl facet and its artist/title fields both miss things —
+      // retry as a loose keyword search across all formats, then filter here.
+      d = await dg(`${base}&q=${enc(a.artist + " " + a.album)}`);
+      const all = d.results || [];
+      const vinyl = all.filter(r => /vinyl/i.test((r.format || []).join(" ")));
+      if (vinyl.length){ res = vinyl; counted = vinyl.length; }
+      else if (all.length){ a.state = "novinyl"; paint(a); return; }
+      else { a.state = "none"; paint(a); return; }
+    }
+
+    a.pressings = counted;
+    const ranked = res.slice().sort((x,y) => scoreRelease(y,a) - scoreRelease(x,a));
+    const top = ranked[0];
+    a.want = top.community && top.community.want;
+    a.have = top.community && top.community.have;
+    if (!a.year && top.year) a.year = String(top.year);
+    a.discogsUrl = "https://www.discogs.com" + (top.uri || "");
+    a.sellUrl = `https://www.discogs.com/sell/release/${top.id}?ev=rb&format=Vinyl`;
+
+    // The most-owned pressing is often a pricey original. Price-check the top few
+    // and keep the cheapest one actually in stock, stopping early on an obvious
+    // in-print copy so we don't burn the rate limit.
+    const CHEAP = {GBP:25, EUR:30, USD:32}[cur] || 25;
+    let winner = null;
+    for (const rel of ranked.slice(0,3)){
+      const st = await dg(`https://api.discogs.com/marketplace/stats/${rel.id}?curr_abbr=${cur}`);
+      const v = st && st.lowest_price && st.lowest_price.value;
+      if (v && (!winner || v < winner.price)){
+        winner = {price:v, cur:(st.lowest_price.currency || cur), forSale:st.num_for_sale, rel};
+      }
+      if (v && v <= CHEAP) break;
+    }
+
+    if (winner){
+      a.price = winner.price;
+      a.cur = winner.cur;
+      a.forSale = winner.forSale;
+      if (!a.year && winner.rel.year) a.year = String(winner.rel.year);   // keep the original release year
+      a.discogsUrl = "https://www.discogs.com" + (winner.rel.uri || "");
+      a.sellUrl = `https://www.discogs.com/sell/release/${winner.rel.id}?ev=rb&format=Vinyl`;
+      a.state = "done";
+    } else {
+      a.forSale = 0;
+      a.state = "nostock";
+    }
+  } catch(e){
+    a.state = "error";
+  }
+  paint(a);
+}
+
+/* ---------------- rendering ---------------- */
+const PH = `<svg class="art art-ph" viewBox="0 0 100 100"><circle cx="50" cy="50" r="44" fill="#2a231e"/><circle cx="50" cy="50" r="33" fill="none" stroke="#3a302a"/><circle cx="50" cy="50" r="24" fill="none" stroke="#3a302a"/><circle cx="50" cy="50" r="12" fill="#3a302a"/><circle cx="50" cy="50" r="3" fill="#211c18"/></svg>`;
+window.PH = PH;
+
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function priceHTML(a){
+  const sym = CUR_SYM[a.cur || $("cur").value] || "";
+  switch(a.state){
+    case "loading": return `<div class="price loading">checking Discogs…</div>`;
+    case "done":
+      return `<div class="price">${sym}${a.price.toFixed(2)}
+        <small>lowest · ${a.forSale} for sale · ${a.pressings} pressing${a.pressings===1?"":"s"}</small></div>`;
+    case "nostock": return `<div class="price none">On vinyl (${a.pressings} pressing${a.pressings===1?"":"s"}) — none listed right now</div>`;
+    case "novinyl": return `<div class="price none">Found on Discogs, but not on vinyl</div>`;
+    case "none":    return `<div class="price none">No vinyl pressing found</div>`;
+    case "error":   return `<div class="price none">Lookup failed — try again</div>`;
+    default:        return `<div class="price none">Price not checked yet</div>`;
+  }
+}
+
+function cardHTML(a){
+  const art = a.art
+    ? `<img class="art" src="${esc(a.art)}" alt="" loading="lazy" onerror="this.onerror=null;var e=this;setTimeout(function(){if(e.parentNode)e.outerHTML=PH},0)">`
+    : PH;
+  const links = storeLinks(a).map(l =>
+    `<a href="${esc(l.url)}" target="_blank" rel="noopener"${l.key?' class="key"':""}>${l.name}</a>`).join("");
+  const unit = a.unit || "tracks in your playlist";
+  const pills = [
+    unit === "plays"
+      ? `${a.tracks.toLocaleString()} play${a.tracks===1?"":"s"}`
+      : `${a.tracks} ${a.tracks===1 ? unit.replace("tracks","track") : unit}`,
+    a.pending ? "looking up the album…" : null,
+    a.year ? a.year : null,
+    (a.want != null && a.want > 500) ? `${a.want.toLocaleString()} want it` : null
+  ].filter(Boolean).map(p => `<span class="pill">${esc(p)}</span>`).join("");
+
+  const title = a.album || (a.song ? a.song + " (album unknown)" : "Unknown album");
+  return `${art}
+    <div class="meta">
+      <p class="art-title" title="${esc(title)}">${esc(title)}</p>
+      <p class="art-artist" title="${esc(a.artist)}">${esc(a.artist)}</p>
+      ${pills}
+      ${priceHTML(a)}
+      <div class="links">${links}</div>
+    </div>
+    <button class="tick" title="Mark as owned" aria-label="Mark as owned" aria-pressed="${a.got}">${a.got ? "✓" : "○"}</button>`;
+}
+
+function paint(a){
+  if (VIEW === "flow"){
+    const el = document.querySelector(`.fitem[data-k="${CSS.escape(a.key)}"]`);
+    if (el && a.art && !el.querySelector("img")){
+      el.innerHTML = `<img class="face" src="${esc(a.art)}" alt="" loading="lazy"><img class="refl" src="${esc(a.art)}" alt="" loading="lazy" aria-hidden="true">`;
+    }
+    if (FLIST[FCUR] === a) flowInfo(a);
+    return;
+  }
+  const el = document.querySelector(`.album[data-k="${CSS.escape(a.key)}"]`);
+  if (el){ el.innerHTML = cardHTML(a); el.classList.toggle("got", a.got); }
+}
+
+function visible(){
+  const q = norm($("q").value);
+  let list = ALBUMS.filter(a => !q || norm(a.artist + " " + a.album).includes(q));
+  const s = $("sort").value;
+  const cmp = {
+    tracks: (x,y) => y.tracks - x.tracks || x.artist.localeCompare(y.artist),
+    artist: (x,y) => x.artist.localeCompare(y.artist) || x.album.localeCompare(y.album),
+    album:  (x,y) => x.album.localeCompare(y.album),
+    price:  (x,y) => (x.price==null) - (y.price==null) || (x.price||0) - (y.price||0),
+    want:   (x,y) => (y.want||0) - (x.want||0)
+  }[s];
+  return list.sort(cmp);
+}
+
+function render(){
+  if (VIEW === "flow") renderFlow(); else renderGrid();
+}
+
+function renderGrid(){
+  const list = visible();
+  const grid = $("grid");
+  grid.innerHTML = list.map(a =>
+    `<div class="album${a.got?" got":""}" data-k="${esc(a.key)}">${cardHTML(a)}</div>`).join("");
+  $("empty").classList.toggle("hide", list.length > 0);
+  updateStats();
+}
+
+/* ---------------- Cover Flow ---------------- */
+let VIEW = "grid", FCUR = 0, FLIST = [];
+
+const PH_FLOW = `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><rect width="100" height="100" fill="#241e19"/><circle cx="50" cy="50" r="36" fill="#1a1512"/><circle cx="50" cy="50" r="27" fill="none" stroke="#332b25"/><circle cx="50" cy="50" r="19" fill="none" stroke="#332b25"/><circle cx="50" cy="50" r="10" fill="#3a302a"/><circle cx="50" cy="50" r="2.6" fill="#14110f"/></svg>`;
+
+function renderFlow(){
+  FLIST = visible();
+  $("empty").classList.toggle("hide", FLIST.length > 0);
+  if (!FLIST.length){
+    $("stage").innerHTML = ""; $("finfo").innerHTML = "";
+    $("fcount").textContent = ""; updateStats(); return;
+  }
+  FCUR = Math.min(Math.max(FCUR, 0), FLIST.length - 1);
+  $("stage").innerHTML = FLIST.map((a,i) => {
+    const inner = a.art
+      ? `<img class="face" src="${esc(a.art)}" alt="" loading="lazy"><img class="refl" src="${esc(a.art)}" alt="" loading="lazy" aria-hidden="true">`
+      : `<div class="face">${PH_FLOW}</div><div class="refl">${PH_FLOW}</div>`;
+    return `<div class="fitem" data-i="${i}" data-k="${esc(a.key)}">${inner}</div>`;
+  }).join("");
+  $("scrub").max = FLIST.length - 1;
+  updateFlow(true);
+  updateStats();
+}
+
+function updateFlow(instant){
+  const kids = $("stage").children;
+  const compact = $("stage").clientWidth < 560;
+  const Z = compact ? 120 : 235, STEP = compact ? 62 : 112, GAP = compact ? 96 : 168;
+  for (const el of kids){
+    if (instant) el.style.transition = "none";
+    const d = +el.dataset.i - FCUR, ad = Math.abs(d);
+    el.style.transform = d === 0
+      ? `translateX(0) translateZ(${Z}px) rotateY(0deg)`
+      : `translateX(${d*STEP + Math.sign(d)*GAP}px) translateZ(0) rotateY(${d < 0 ? 62 : -62}deg)`;
+    el.style.zIndex = 300 - ad;
+    el.style.opacity = ad > 9 ? 0 : 1;
+    el.style.pointerEvents = ad > 9 ? "none" : "auto";
+    if (instant) requestAnimationFrame(() => { el.style.transition = ""; });
+  }
+  $("scrub").value = FCUR;
+  $("fcount").textContent = `${FCUR + 1} of ${FLIST.length}`;
+  flowInfo(FLIST[FCUR]);
+}
+
+function flowInfo(a){
+  if (!a){ $("finfo").innerHTML = ""; return; }
+  const unit = a.unit || "tracks in your playlist";
+  const pills = [
+    unit === "plays" ? `${a.tracks.toLocaleString()} play${a.tracks===1?"":"s"}`
+                     : `${a.tracks} ${a.tracks===1 ? unit.replace("tracks","track") : unit}`,
+    (a.want != null && a.want > 500) ? `${a.want.toLocaleString()} want it` : null
+  ].filter(Boolean).map(p => `<span class="pill">${esc(p)}</span>`).join(" ");
+  const links = storeLinks(a).map(l =>
+    `<a href="${esc(l.url)}" target="_blank" rel="noopener"${l.key?' class="key"':""}>${l.name}</a>`).join("");
+  $("finfo").innerHTML = `
+    <h2>${esc(a.album || (a.song ? a.song + " (album unknown)" : "Unknown album"))}</h2>
+    <p class="fartist">${esc(a.artist)}${a.year ? " · " + esc(a.year) : ""}</p>
+    <div style="margin-bottom:8px">${pills}</div>
+    ${priceHTML(a)}
+    <div class="links">${links}</div>
+    <button class="ghost mini" id="fgot" style="margin-top:12px">${a.got ? "✓ Owned" : "Mark as owned"}</button>`;
+  $("fgot").onclick = () => { a.got = !a.got; flowInfo(a); };
+}
+
+function flowGo(i){
+  if (!FLIST.length) return;
+  const n = Math.min(Math.max(i, 0), FLIST.length - 1);
+  if (n === FCUR) return;
+  FCUR = n; updateFlow();
+}
+
+function setView(v){
+  VIEW = v;
+  $("vGrid").classList.toggle("on", v === "grid");
+  $("vFlow").classList.toggle("on", v === "flow");
+  $("vGrid").setAttribute("aria-pressed", v === "grid");
+  $("vFlow").setAttribute("aria-pressed", v === "flow");
+  $("grid").classList.toggle("hide", v === "flow");
+  $("flow").classList.toggle("on", v === "flow");
+  render();
+}
+
+function updateStats(){
+  const priced = ALBUMS.filter(a => a.state === "done");
+  const total = priced.reduce((s,a) => s + a.price, 0);
+  const sym = CUR_SYM[$("cur").value] || "";
+  const unit = (ALBUMS[0] && ALBUMS[0].unit) || "tracks in your playlist";
+  $("optTracks").textContent = unit === "plays" ? "Most played"
+    : unit === "tracks in your library" ? "Most tracks in library" : "Most tracks in playlist";
+  const n = ALBUMS.reduce((s,a) => s + a.tracks, 0).toLocaleString();
+  let t = `<b>${ALBUMS.length}</b> albums from <b>${n}</b> ${unit === "plays" ? "plays" : "tracks"}`;
+  if (PENDING_LEFT > 0) t += ` · matching <b>${PENDING_LEFT}</b> song${PENDING_LEFT===1?"":"s"} to albums…`;
+  if (priced.length) t += ` · <b>${priced.length}</b> priced · cheapest copies would total <b>${sym}${total.toFixed(2)}</b>`;
+  $("stats").innerHTML = t;
+}
+
+/* ---------------- actions ---------------- */
+function ingest(text){
+  text = text.replace(/^﻿/,"");
+  // Apple's desktop playlist export uses CR-only line endings
+  if (text.indexOf("\r") !== -1 && text.indexOf("\n") === -1) text = text.replace(/\r/g, "\n");
+  text = text.trim();
+  if (!text) return alert("Nothing to read there.");
+
+  let parsed = null;
+  if (/^<\?xml|^<plist/i.test(text)){
+    parsed = itemsFromPlist(text);
+    if (!parsed) return alert("That looks like an XML file, but I couldn't find a Tracks section in it.\n\nUse Music/iTunes → File → Library → Export Library.");
+  }
+  if (!parsed && /[,;\t]/.test(text.split(/\r?\n/)[0] || "")){
+    const rows = parseDelimited(text, detectDelim(text));
+    if (rows.length > 1) parsed = itemsFromRows(rows);
+  }
+  if (!parsed || !parsed.items || !parsed.items.length) parsed = itemsFromLines(text);
+  if (!parsed || !parsed.items.length){
+    return alert("Couldn't find artist and album information in that.\n\nWorks with:\n· Apple Music / iTunes playlist or library exports\n· Your Apple privacy data download\n· Exportify, Soundiiz or TuneMyMusic CSVs\n· Plain lines like  Radiohead - In Rainbows");
+  }
+
+  mergeItems(parsed.items, UNITS[parsed.fmt] || "tracks in your playlist");
+  $("results").classList.remove("hide");
+  render();
+  $("results").scrollIntoView({behavior:"smooth", block:"start"});
+  queueEnrichment();
+}
+
+async function runPrices(){
+  if (RUNNING) return;
+  const targets = visible().filter(a => !a.pending && a.album && (a.state === "idle" || a.state === "error"));
+  if (!targets.length){ alert("Everything visible has been checked already."); return; }
+  const hasToken = !!$("token").value.trim();
+  discQ = makeQueue(hasToken ? 1100 : 2600);
+  // ~2–3 requests per album on average (search + price checks)
+  const mins = Math.ceil(targets.length * (hasToken ? 3.3 : 7.8) / 60);
+  if (!confirm(`Check ${targets.length} album${targets.length===1?"":"s"} on Discogs?\n\nRoughly ${mins} minute${mins===1?"":"s"} at the ${hasToken?"60":"25"}-requests-a-minute limit. You can stop any time.`)) return;
+
+  RUNNING = true; ABORT = false;
+  $("fetch").disabled = true; $("stop").classList.remove("hide");
+  $("cur").disabled = true; $("token").disabled = true;   // changing these mid-run corrupts results
+  $("bar").classList.add("on");
+  const cur = $("cur").value;
+  let done = 0;
+
+  targets.forEach(a => { a.state = "queued"; });
+  for (const a of targets){
+    if (ABORT) break;
+    await fetchVinyl(a, cur);            // each internal request paces itself through discQ
+    done++;
+    $("bar").firstElementChild.style.width = (done / targets.length * 100) + "%";
+    updateStats();
+  }
+  targets.forEach(a => { if (a.state === "queued") a.state = "idle"; paint(a); });
+  RUNNING = false;
+  $("fetch").disabled = false; $("stop").classList.add("hide");
+  $("cur").disabled = false; $("token").disabled = false;
+  setTimeout(() => $("bar").classList.remove("on"), 900);
+  if ($("sort").value === "price") render();
+}
+
+const STATE_LABEL = {idle:"not checked", queued:"not checked", loading:"not checked",
+  done:"priced", none:"no vinyl found", novinyl:"not on vinyl", nostock:"none for sale", error:"lookup failed"};
+
+function exportCSV(){
+  const unit = (ALBUMS[0] && ALBUMS[0].unit) || "tracks in your playlist";
+  const countLabel = unit === "plays" ? "Plays" : "Tracks";
+  const head = ["Artist","Album",countLabel,"Year","Status","Lowest price","Currency","Copies for sale","Vinyl pressings","Discogs wants","Owned","Discogs link"];
+  const rows = visible().map(a => [
+    a.artist, a.album || (a.song ? a.song + " (album unknown)" : ""), a.tracks, a.year || "",
+    STATE_LABEL[a.state] || a.state,
+    a.price != null ? a.price.toFixed(2) : "", a.price != null ? (a.cur||"") : "",
+    a.forSale != null ? a.forSale : "", a.pressings != null ? a.pressings : "",
+    a.want != null ? a.want : "", a.got ? "yes" : "",
+    a.discogsUrl || ""
+  ]);
+  const cell = c => {
+    let s = String(c);
+    if (/^[=+\-@]/.test(s)) s = "'" + s;                     // stop Excel treating it as a formula
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  };
+  const csv = "\uFEFF" + [head, ...rows].map(r => r.map(cell).join(",")).join("\r\n");   // BOM so Excel reads UTF-8
+  const url = URL.createObjectURL(new Blob([csv], {type:"text/csv;charset=utf-8"}));
+  const a = document.createElement("a");
+  a.href = url; a.download = "crate-vinyl-list.csv"; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/* ---------------- wiring ---------------- */
+const drop = $("drop");
+drop.addEventListener("click", () => $("file").click());
+["dragenter","dragover"].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.add("over");
+}));
+["dragleave","drop"].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.remove("over");
+}));
+drop.addEventListener("drop", ev => readFiles(ev.dataTransfer.files));
+$("file").addEventListener("change", ev => readFiles(ev.target.files));
+
+function readFiles(files){
+  [...files].forEach(f => {
+    const r = new FileReader();
+    r.onload = () => {
+      const buf = new Uint8Array(r.result);
+      // Apple's desktop playlist export is UTF-16LE with a BOM, not UTF-8
+      let enc2 = "utf-8";
+      if (buf[0] === 0xFF && buf[1] === 0xFE) enc2 = "utf-16le";
+      else if (buf[0] === 0xFE && buf[1] === 0xFF) enc2 = "utf-16be";
+      let text;
+      try { text = new TextDecoder(enc2).decode(buf); }
+      catch(e){ text = new TextDecoder("utf-8").decode(buf); }
+      ingest(text);
+    };
+    r.readAsArrayBuffer(f);
+  });
+}
+
+$("go").addEventListener("click", () => ingest($("paste").value));
+$("demo").addEventListener("click", () => {
+  $("paste").value = [
+    "Radiohead - In Rainbows","Radiohead - OK Computer","Miles Davis - Kind of Blue",
+    "Fleetwood Mac - Rumours","Nick Drake - Pink Moon","Portishead - Dummy",
+    "Björk - Homogenic","J Dilla - Donuts","Talk Talk - Spirit of Eden",
+    "Barış Manço - 2023","Kendrick Lamar - To Pimp a Butterfly","Aphex Twin - Selected Ambient Works 85-92"
+  ].join("\n");
+  ingest($("paste").value);
+});
+let qT = null;
+$("q").addEventListener("input", () => { clearTimeout(qT); qT = setTimeout(render, 160); });
+$("sort").addEventListener("change", render);
+$("cur").addEventListener("change", () => {
+  ALBUMS.forEach(a => { if (a.state === "done" || a.state === "nostock"){ a.state = "idle"; a.price = null; } });
+  render();
+});
+$("fetch").addEventListener("click", runPrices);
+$("stop").addEventListener("click", () => { ABORT = true; });
+$("export").addEventListener("click", exportCSV);
+$("grid").addEventListener("click", ev => {
+  const btn = ev.target.closest(".tick");
+  if (!btn) return;
+  const card = btn.closest(".album");
+  const a = ALBUMS.find(x => x.key === card.dataset.k);
+  if (a){ a.got = !a.got; paint(a); }
+});
+
+/* ---- Cover Flow wiring ---- */
+$("vGrid").addEventListener("click", () => setView("grid"));
+$("vFlow").addEventListener("click", () => setView("flow"));
+$("scrub").addEventListener("input", e => flowGo(+e.target.value));
+$("stage").addEventListener("click", e => {
+  if (DRAGGED) return;
+  const it = e.target.closest(".fitem");
+  if (it) flowGo(+it.dataset.i);
+});
+$("stage").addEventListener("wheel", e => {
+  if (!FLIST.length) return;
+  e.preventDefault();
+  const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  if (Math.abs(d) > 3) flowGo(FCUR + (d > 0 ? 1 : -1));
+}, {passive:false});
+document.addEventListener("keydown", e => {
+  if (VIEW !== "flow" || $("results").classList.contains("hide")) return;
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  if (e.key === "ArrowLeft"){ e.preventDefault(); flowGo(FCUR - 1); }
+  else if (e.key === "ArrowRight"){ e.preventDefault(); flowGo(FCUR + 1); }
+});
+let DRAG = null, DRAGGED = false;
+$("stage").addEventListener("pointerdown", e => { DRAG = {x:e.clientX, cur:FCUR}; DRAGGED = false; });
+window.addEventListener("pointermove", e => {
+  if (!DRAG) return;
+  const dx = e.clientX - DRAG.x;
+  if (Math.abs(dx) > 8) DRAGGED = true;
+  flowGo(DRAG.cur - Math.round(dx / 64));
+});
+window.addEventListener("pointerup", () => { DRAG = null; setTimeout(() => DRAGGED = false, 50); });
+window.addEventListener("resize", () => { if (VIEW === "flow" && FLIST.length) updateFlow(true); });
+</script>
+</body>
+</html>

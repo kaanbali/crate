@@ -1,0 +1,7 @@
+﻿Album Name,Container Album Name,Container Artist Name,End Reason Type,Event Type,Media Duration In Milliseconds,Media Type,Play Duration Milliseconds,Song Name,Store Front Name
+Rumours,Rumours,Fleetwood Mac,NATURAL_END_OF_TRACK,PLAY_END,257000,AUDIO,257000,Dreams,United Kingdom
+Rumours,Rumours,Fleetwood Mac,PLAYBACK_MANUALLY_PAUSED,PLAY_END,201000,AUDIO,180000,Go Your Own Way,United Kingdom
+Rumours,,,NATURAL_END_OF_TRACK,PLAY_START,257000,AUDIO,257000,Dreams,United Kingdom
+Donuts,,,TRACK_SKIPPED_FORWARDS,PLAY_END,90000,AUDIO,4000,Workinonit,United Kingdom
+Homogenic,,,NATURAL_END_OF_TRACK,PLAY_END,240000,AUDIO,240000,Joga,United Kingdom
+,,,FAILED_TO_LOAD,PLAY_END,0,AUDIO,0,,United Kingdom
