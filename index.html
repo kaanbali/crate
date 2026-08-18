@@ -110,6 +110,16 @@
   .mini{padding:7px 13px;font-size:13.5px;border-width:2px;box-shadow:var(--hard-sm)}
   .mini:hover{box-shadow:3px 4px 0 rgba(42,28,20,.92)}
 
+  .sres{margin-top:12px;display:grid;gap:8px}
+  .hit{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+    background:var(--card);color:var(--ink);padding:8px 12px;font-size:14px;box-shadow:var(--hard-sm)}
+  .hit:hover{box-shadow:3px 4px 0 rgba(42,28,20,.92)}
+  .hit img{width:46px;height:46px;border-radius:9px;border:2px solid var(--ink);flex:none}
+  .hit .hit-t{min-width:0}
+  .hit b{display:block;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hit span{display:block;color:var(--muted);font-size:12.5px;font-weight:500;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
   .toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:28px 0 16px}
   input[type=search],select,input[type=text]{
     background:var(--card);color:var(--ink);border:2px solid var(--ink);border-radius:12px;
@@ -314,6 +324,14 @@
       <button id="go">Build my crate</button>
       <button class="ghost" id="demo">Try a sample</button>
     </div>
+
+    <div class="or">or look up one song</div>
+    <div class="row">
+      <input type="search" id="song" placeholder="Song name, or artist and song" autocomplete="off">
+      <button class="ghost" id="songGo">Find the album</button>
+    </div>
+    <p class="sm" id="songMsg" style="margin:10px 0 0"></p>
+    <div class="sres hide" id="sres"></div>
 
     <details class="adv">
       <summary>How do I export from Apple Music?</summary>
@@ -1254,6 +1272,91 @@ function readFiles(files){
     r.readAsArrayBuffer(f);
   });
 }
+
+/* ---------------- single-song lookup ---------------- */
+/* Same iTunes catalogue enrich() uses, driven by hand: one song in, its album out,
+   then straight through the normal pricing path. */
+let SHITS = [];
+const SFOUND = new Map();     // album key -> songs already added by hand, so a re-add doesn't re-count
+
+function songMsg(t){ $("songMsg").textContent = t; }
+
+async function songSearch(){
+  const q = $("song").value.trim();
+  if (!q) return;
+  $("songGo").disabled = true;
+  $("sres").classList.add("hide");
+  songMsg("Searching the catalogue…");
+  try{
+    const r = await fetch(`https://itunes.apple.com/search?term=${enc(q)}&entity=song&limit=8`);
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    SHITS = (d.results || []).filter(x => x.collectionName && x.artistName);
+    if (!SHITS.length){ songMsg("No song by that name — try adding the artist."); return; }
+    songMsg("Pick the right one and it goes in your crate, priced.");
+    $("sres").innerHTML = SHITS.map((x,i) =>
+      `<button class="hit" data-i="${i}">` +
+      (x.artworkUrl100 ? `<img src="${esc(x.artworkUrl100)}" alt="">` : "") +
+      `<span class="hit-t"><b>${esc(x.trackName || "")}</b>` +
+      `<span>${esc(primaryArtist(x.artistName))} · ${esc(cleanTitle(x.collectionName))}` +
+      (x.releaseDate ? " · " + esc(x.releaseDate.slice(0,4)) : "") + `</span></span></button>`).join("");
+    $("sres").classList.remove("hide");
+  } catch(e){
+    songMsg("Couldn't reach the catalogue just then. Try again in a moment.");
+  } finally {
+    $("songGo").disabled = false;
+  }
+}
+
+async function addSong(x){
+  const artist = primaryArtist(x.artistName || "");
+  const album  = cleanTitle(x.collectionName || "");
+  if (!artist || !album){ songMsg("That one has no album listed — try another version."); return; }
+  const key = norm(artist) + "|" + norm(album);
+  const prev = ALBUMS.find(v => v.key === key);
+  const already = !!prev;
+  const songs = SFOUND.get(key) || new Set();
+  const sameSong = songs.has(norm(x.trackName || ""));
+  const wasTracks = prev ? prev.tracks : 0;
+  mergeItems([{artist, album, song:x.trackName, year:(x.releaseDate || "").slice(0,4)}],
+             "tracks in your playlist");
+  const a = ALBUMS.find(v => v.key === key);
+  if (a && sameSong) a.tracks = wasTracks;          // same song twice isn't two tracks
+  songs.add(norm(x.trackName || ""));
+  SFOUND.set(key, songs);
+  if (a && !a.art && x.artworkUrl100) a.art = x.artworkUrl100.replace(/100x100bb/, "400x400bb");
+  $("sres").classList.add("hide");
+  $("song").value = "";
+  $("results").classList.remove("hide");
+  render();
+  $("results").scrollIntoView({behavior:"smooth", block:"start"});
+  if (!a) return;
+  if (already && a.state !== "idle"){ songMsg(`${album} was already in your crate.`); return; }
+  songMsg(`Added ${album} — checking vinyl prices…`);
+  await priceOne(a);
+  songMsg(`${album} is in your crate. Buy links are on the card.`);
+}
+
+/* one album, outside the batch run — same lock so a batch can't overlap it */
+async function priceOne(a){
+  if (RUNNING || !a.album || a.pending) return;
+  RUNNING = true;
+  $("fetch").disabled = true; $("cur").disabled = true; $("token").disabled = true;
+  discQ = makeQueue($("token").value.trim() ? 1100 : 2600);
+  try { await fetchVinyl(a, $("cur").value); }
+  finally {
+    RUNNING = false;
+    $("fetch").disabled = false; $("cur").disabled = false; $("token").disabled = false;
+    updateStats();
+  }
+}
+
+$("songGo").addEventListener("click", songSearch);
+$("song").addEventListener("keydown", e => { if (e.key === "Enter") songSearch(); });
+$("sres").addEventListener("click", ev => {
+  const b = ev.target.closest(".hit");
+  if (b) addSong(SHITS[+b.dataset.i]);
+});
 
 $("go").addEventListener("click", () => ingest($("paste").value));
 $("demo").addEventListener("click", () => {
