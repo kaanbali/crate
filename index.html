@@ -112,6 +112,14 @@
 
   .sres{margin-top:12px;display:grid;gap:8px}
   .sgroup{margin:6px 0 0;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.14em}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+  .chip{padding:6px 13px;font-size:13px;border-width:2px;box-shadow:var(--hard-sm);
+    background:var(--card);color:var(--ink)}
+  .chip[aria-pressed="true"]{background:var(--sun);color:var(--ink)}
+  .count{margin:0 0 10px;color:var(--muted);font-size:13px}
+  .album.sel{outline:3px solid var(--pink);outline-offset:3px}
+  .dres{display:grid;gap:8px;margin-top:14px;text-align:left}
+  .empty-actions{margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
   .hit .play{margin-left:auto;flex:none;width:30px;height:30px;padding:0;border-radius:50%;
     font-size:12px;line-height:1;background:var(--sun);color:var(--ink);border-width:2px;box-shadow:var(--hard-sm)}
   .hit .play[data-on="1"]{background:var(--pink);color:#fff}
@@ -390,7 +398,7 @@
 
   <div id="results" class="hide">
     <div class="toolbar">
-      <input type="search" id="q" placeholder="Filter albums…">
+      <input type="search" id="q" placeholder="Filter your crate  ( / )" aria-describedby="count">
       <select id="sort">
         <option value="tracks" id="optTracks">Most tracks in playlist</option>
         <option value="artist">Artist A–Z</option>
@@ -411,6 +419,13 @@
       <button class="ghost mini hide" id="stop">Stop</button>
       <button class="ghost mini" id="export">Export CSV</button>
     </div>
+    <div class="chips" id="chips">
+      <button class="chip" data-f="owned" aria-pressed="false">Owned</button>
+      <button class="chip" data-f="notowned" aria-pressed="false">Not owned</button>
+      <button class="chip" data-f="priced" aria-pressed="false">Priced</button>
+      <button class="chip" data-f="novinyl" aria-pressed="false">No vinyl found</button>
+    </div>
+    <p class="count" id="count"></p>
     <p class="stats" id="stats"></p>
     <div class="bar" id="bar"><i></i></div>
     <div class="grid" id="grid" style="margin-top:16px"></div>
@@ -420,7 +435,7 @@
       <input type="range" class="scrub" id="scrub" min="0" max="0" value="0" step="1" aria-label="Browse albums">
       <p class="fcount" id="fcount"></p>
     </div>
-    <div class="empty hide" id="empty">Nothing matches that filter.</div>
+    <div class="empty hide" id="empty"></div>
   </div>
 
   <footer>
@@ -550,6 +565,8 @@ function norm(s){
     .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
     .toLowerCase()
     .replace(/&/g," and ")
+    .replace(/æ/g,"ae").replace(/œ/g,"oe").replace(/ß/g,"ss")
+    .replace(/ø/g,"o").replace(/đ|ð/g,"d").replace(/ł/g,"l").replace(/þ/g,"th")
     .replace(/[^a-z0-9]+/g," ")
     .replace(/\b(the|a|an)\b/g," ")
     .replace(/\s+/g," ").trim();
@@ -719,6 +736,7 @@ function mergeItems(items, unit){
 /* iTunes hands back more than art in the same response — keep the useful parts
    rather than spending another request on them later */
 function absorbInfo(a, x){
+  a._hay = null;
   if (!a.genre && x.primaryGenreName) a.genre = x.primaryGenreName;
   if (!a.trackCount && x.trackCount) a.trackCount = x.trackCount;
   // "℗ 2007 XL Recordings" and "℗ Originally released 1959 Sony Music" both appear
@@ -933,6 +951,7 @@ async function fetchVinyl(a, cur){
     }
 
     a.pressings = counted;
+    a._hay = null;
     const ranked = res.slice().sort((x,y) => scoreRelease(y,a) - scoreRelease(x,a));
     const top = ranked[0];
     a.want = top.community && top.community.want;
@@ -1041,9 +1060,64 @@ function paint(a){
   if (el){ el.innerHTML = cardHTML(a); el.classList.toggle("got", a.got); }
 }
 
+/* Everything worth searching on, normalised once and cached — rebuilding this
+   for 2,000 albums on every keystroke is what makes filtering feel slow. */
+function hay(a){
+  if (a._hay == null){
+    a._hay = norm([a.artist, a.album, a.song, a.year, a.label, a.genre].filter(Boolean).join(" "));
+  }
+  return a._hay;
+}
+
+/* edit distance counting a swap of neighbours as one, abandoned once it passes `max` */
+function lev(x, y, max){
+  if (Math.abs(x.length - y.length) > max) return max + 1;
+  const rows = [Array.from({length:y.length + 1}, (_, i) => i)];
+  for (let i = 1; i <= x.length; i++){
+    const cur = [i];
+    const prev = rows[i-1], prev2 = rows[i-2];
+    let best = i;
+    for (let j = 1; j <= y.length; j++){
+      cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (x[i-1] === y[j-1] ? 0 : 1));
+      if (i > 1 && j > 1 && x[i-1] === y[j-2] && x[i-2] === y[j-1]){
+        cur[j] = Math.min(cur[j], prev2[j-2] + 1);
+      }
+      if (cur[j] < best) best = cur[j];
+    }
+    if (best > max) return max + 1;
+    rows.push(cur);
+  }
+  return rows[x.length][y.length];
+}
+
+/* every word typed has to match some word on the album, give or take a typo */
+function fuzzyHit(h, terms){
+  const words = h.split(" ");
+  return terms.every(t => {
+    if (h.includes(t)) return true;
+    const max = t.length <= 4 ? 1 : 2;
+    return words.some(w => lev(t, w, max) <= max);
+  });
+}
+
+const CHIP_TEST = {
+  owned:    a => a.got,
+  notowned: a => !a.got,
+  priced:   a => a.state === "done",
+  novinyl:  a => a.state === "novinyl" || a.state === "none"
+};
+let CHIPS = new Set();
+
 function visible(){
   const q = norm($("q").value);
-  let list = ALBUMS.filter(a => !q || norm(a.artist + " " + a.album).includes(q));
+  let list = ALBUMS;
+  for (const c of CHIPS) list = list.filter(CHIP_TEST[c]);
+  if (q){
+    const exact = list.filter(a => hay(a).includes(q));
+    // only pay for typo tolerance when a plain match found nothing
+    list = exact.length ? exact
+         : (q.length >= 2 ? list.filter(a => fuzzyHit(hay(a), q.split(" "))) : exact);
+  }
   const s = $("sort").value;
   const cmp = {
     tracks: (x,y) => y.tracks - x.tracks || x.artist.localeCompare(y.artist),
@@ -1060,13 +1134,111 @@ function render(){
   updateNP();
 }
 
+let SHOW_CAP = 300;        // cards in the DOM at once; the filter still sees everything
+let SEL = -1;              // keyboard cursor into the visible list
+
 function renderGrid(){
   const list = visible();
   const grid = $("grid");
-  grid.innerHTML = list.map(a =>
+  const shown = list.slice(0, SHOW_CAP);
+  grid.innerHTML = shown.map(a =>
     `<div class="album${a.got?" got":""}" data-k="${esc(a.key)}">${cardHTML(a)}</div>`).join("");
   $("empty").classList.toggle("hide", list.length > 0);
+  if (!list.length) drawEmpty();
+  if (SEL >= shown.length) SEL = shown.length - 1;
+  paintSel();
+  updateCount(list.length, shown.length);
   updateStats();
+}
+
+function updateCount(total, shown){
+  const q = $("q").value.trim();
+  if (!ALBUMS.length){ $("count").textContent = ""; return; }
+  let t = `${total.toLocaleString()} of ${ALBUMS.length.toLocaleString()} album${ALBUMS.length===1?"":"s"}`;
+  if (q) t += ` matching “${q}”`;
+  if (CHIPS.size) t += ` · ${[...CHIPS].length} filter${CHIPS.size===1?"":"s"} on`;
+  if (shown < total) t += ` · showing the first ${shown.toLocaleString()}`;
+  $("count").textContent = t;
+}
+
+function paintSel(){
+  document.querySelectorAll(".album.sel").forEach(el => el.classList.remove("sel"));
+  const cards = $("grid").children;
+  if (SEL < 0 || SEL >= cards.length) return;
+  cards[SEL].classList.add("sel");
+  cards[SEL].scrollIntoView({block:"nearest"});
+}
+
+/* nothing matched — say so usefully, and offer the wider catalogue */
+function drawEmpty(){
+  const q = $("q").value.trim();
+  const bits = [];
+  if (!ALBUMS.length) bits.push("Your crate is empty — drop a playlist in above.");
+  else if (CHIPS.size && !q) bits.push("No album in your crate matches those filters.");
+  else bits.push(`Nothing in your crate matches “${esc(q)}”.`);
+  const actions = [];
+  if (CHIPS.size) actions.push(`<button class="ghost mini" id="clearChips">Clear filters</button>`);
+  if (q) actions.push(`<button class="mini" id="askDiscogs">Search Discogs for “${esc(q)}”</button>`);
+  $("empty").innerHTML = bits.join(" ") +
+    (actions.length ? `<div class="empty-actions">${actions.join("")}</div>` : "") +
+    `<div class="dres" id="dres"></div>`;
+}
+
+/* look a record up on Discogs and let it be added straight in */
+async function askDiscogs(q){
+  const box = $("dres");
+  if (!box) return;
+  box.innerHTML = `<p class="sm">Asking Discogs…</p>`;
+  try{
+    const d = await dg(`https://api.discogs.com/database/search?type=release&format=Vinyl` +
+                       `&per_page=8&q=${enc(q)}`);
+    const res = (d.results || []).filter(r => r.title);
+    if (!res.length){ box.innerHTML = `<p class="sm">Discogs has no vinyl matching that either.</p>`; return; }
+    DHITS = res;
+    box.innerHTML = res.map((r,i) => {
+      const [artist, album] = splitDash(r.title);
+      const sub = [r.year, (r.label||[])[0], (r.format||[]).slice(0,3).join(", "), r.country]
+        .filter(Boolean).join(" · ");
+      return `<div class="hit" role="button" tabindex="0" data-d="${i}">` +
+        (r.thumb ? `<img src="${esc(r.thumb)}" alt="">` : "") +
+        `<span class="hit-t"><b>${esc(album || r.title)}</b>` +
+        `<span>${esc([artist, sub].filter(Boolean).join(" · "))}</span></span></div>`;
+    }).join("");
+  } catch(e){
+    box.innerHTML = `<p class="sm">Couldn't reach Discogs just then.</p>`;
+  }
+}
+
+let DHITS = [];
+
+async function addFromDiscogs(r){
+  const [artist, album] = splitDash(r.title);
+  if (!artist || !album) return;
+  mergeItems([{artist, album, year:r.year}], "tracks in your playlist");
+  const a = ALBUMS.find(v => v.key === norm(artist) + "|" + norm(album));
+  if (!a) return;
+  if (r.thumb && !a.art) a.art = r.thumb;
+  if (!a.label && (r.label||[])[0]) a.label = r.label[0];
+  if (!a.genre && (r.genre||[])[0]) a.genre = r.genre[0];
+  if (r.uri) a.discogsUrl = "https://www.discogs.com" + r.uri;
+  a._hay = null;
+  $("q").value = "";
+  CHIPS.clear();
+  syncChips();
+  render();
+  queueEnrichment();          // Discogs thumbs are often blank; let iTunes fill the sleeve in
+  await priceOne(a);
+}
+
+/* replaced by the full release panel in the next step */
+function openDetail(a){
+  const el = document.querySelector(`.album[data-k="${CSS.escape(a.key)}"]`);
+  if (el) el.scrollIntoView({block:"center", behavior:"smooth"});
+}
+
+function syncChips(){
+  document.querySelectorAll("#chips .chip").forEach(c =>
+    c.setAttribute("aria-pressed", CHIPS.has(c.dataset.f) ? "true" : "false"));
 }
 
 /* ---------------- Cover Flow ---------------- */
@@ -1608,7 +1780,50 @@ $("demo").addEventListener("click", () => {
   ingest($("paste").value);
 });
 let qT = null;
-$("q").addEventListener("input", () => { clearTimeout(qT); qT = setTimeout(render, 160); });
+$("q").addEventListener("input", () => { clearTimeout(qT); qT = setTimeout(() => { SEL = -1; render(); }, 160); });
+
+$("chips").addEventListener("click", ev => {
+  const c = ev.target.closest(".chip");
+  if (!c) return;
+  const f = c.dataset.f;
+  if (CHIPS.has(f)) CHIPS.delete(f);
+  else {
+    CHIPS.add(f);
+    // owned and not-owned cancel each other out
+    if (f === "owned") CHIPS.delete("notowned");
+    if (f === "notowned") CHIPS.delete("owned");
+  }
+  syncChips();
+  SEL = -1;
+  render();
+});
+
+$("empty").addEventListener("click", ev => {
+  if (ev.target.closest("#clearChips")){ CHIPS.clear(); syncChips(); render(); return; }
+  if (ev.target.closest("#askDiscogs")){ askDiscogs($("q").value.trim()); return; }
+  const hit = ev.target.closest(".hit[data-d]");
+  if (hit) addFromDiscogs(DHITS[+hit.dataset.d]);
+});
+
+/* keyboard: "/" jumps to the box, arrows walk the results, Enter opens one */
+document.addEventListener("keydown", ev => {
+  const t = ev.target;
+  const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT");
+  if (ev.key === "/" && !typing){ ev.preventDefault(); $("q").focus(); $("q").select(); return; }
+  if (ev.key === "Escape" && t === $("q")){ $("q").value = ""; SEL = -1; render(); return; }
+  if (VIEW !== "grid") return;
+  const cards = $("grid").children;
+  if (!cards.length) return;
+  if (ev.key === "ArrowDown" || ev.key === "ArrowUp"){
+    if (typing && t !== $("q")) return;
+    ev.preventDefault();
+    SEL = ev.key === "ArrowDown" ? Math.min(SEL + 1, cards.length - 1) : Math.max(SEL - 1, 0);
+    paintSel();
+  } else if (ev.key === "Enter" && SEL >= 0 && (!typing || t === $("q"))){
+    const a = ALBUMS.find(x => x.key === cards[SEL].dataset.k);
+    if (a) openDetail(a);
+  }
+});
 $("sort").addEventListener("change", render);
 $("cur").addEventListener("change", () => {
   ALBUMS.forEach(a => { if (a.state === "done" || a.state === "nostock"){ a.state = "idle"; a.price = null; } });
