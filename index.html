@@ -112,8 +112,16 @@
 
   .sres{margin-top:12px;display:grid;gap:8px}
   .sgroup{margin:6px 0 0;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.14em}
-  .hit{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
-    background:var(--card);color:var(--ink);padding:8px 12px;font-size:14px;box-shadow:var(--hard-sm)}
+  .hit .play{margin-left:auto;flex:none;width:30px;height:30px;padding:0;border-radius:50%;
+    font-size:12px;line-height:1;background:var(--sun);color:var(--ink);border-width:2px;box-shadow:var(--hard-sm)}
+  .hit .play[data-on="1"]{background:var(--pink);color:#fff}
+  .np-stop{margin-left:6px;padding:5px 10px;font-size:12px;border-width:2px;box-shadow:var(--hard-sm);
+    background:var(--card);color:var(--ink)}
+  .hit{display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
+    background:var(--card);color:var(--ink);padding:8px 12px;font-size:14px;box-shadow:var(--hard-sm);
+    border:2px solid var(--ink);border-radius:14px;font-family:inherit;font-weight:600;
+    transition:box-shadow .12s}
+  .hit:focus-visible{outline:3px solid var(--sun)}
   .hit:hover{box-shadow:3px 4px 0 rgba(42,28,20,.92)}
   .hit img{width:46px;height:46px;border-radius:9px;border:2px solid var(--ink);flex:none}
   .hit .hit-t{min-width:0}
@@ -308,7 +316,9 @@
         <span class="np-live"><span class="np-dot">●</span> NOW PLAYING</span>
         <span class="np-title" id="npTitle"></span>
       </div>
+      <button class="np-stop hide" id="npStop" aria-label="Stop preview">Stop</button>
     </div>
+    <audio id="preview" preload="none"></audio>
   </header>
   <p class="tag">Drop in a playlist. Dig out every album on wax — real prices, ready to hunt.</p>
 
@@ -768,6 +778,7 @@ let discQ = makeQueue(2700);
 let ART_BUDGET = 400;        // don't hammer iTunes on a whole listening history
 let ART_PAUSE_UNTIL = 0;     // backoff after a 403/429 instead of giving up for good
 let PENDING_LEFT = 0;
+let NP_LABEL = "";     // what the turntable is playing, if anything
 
 const softRender = (() => {   // rekeying reshuffles the list; don't thrash the DOM
   let t = null;
@@ -1140,10 +1151,11 @@ function flowGo(i){
 function updateNP(){
   const np = $("np");
   const a = (VIEW === "flow" && FLIST[FCUR]) ? FLIST[FCUR] : visible()[0];
-  if (!a){ np.classList.add("hide"); return; }
+  if (!a && !NP_LABEL){ np.classList.add("hide"); return; }
   np.classList.remove("hide");
-  $("npLabel").style.backgroundImage = a.art ? `url("${a.art.replace(/"/g,'%22')}")` : "none";
-  const t = `${a.artist} — ${a.album || a.song || ""}`;
+  const artUrl = a && a.art;
+  $("npLabel").style.backgroundImage = artUrl ? `url("${artUrl.replace(/"/g,'%22')}")` : "none";
+  const t = NP_LABEL || `${a.artist} — ${a.album || a.song || ""}`;
   $("npTitle").textContent = t;
   np.title = t;
 }
@@ -1380,6 +1392,48 @@ async function lastfmImport(){
 $("lfmGo").addEventListener("click", lastfmImport);
 $("lfmUser").addEventListener("keydown", e => { if (e.key === "Enter") lastfmImport(); });
 
+/* ---------------- previews ---------------- */
+/* iTunes ships a 30-second previewUrl in the search responses we already make.
+   The Now Playing turntable becomes the player rather than pure decoration. */
+let PLAYING = null;              // the button currently lit up
+let PLAY_SEQ = 0;                // play() resolves async; only the newest click wins
+
+function litOff(){
+  if (PLAYING){ PLAYING.dataset.on = "0"; PLAYING.textContent = "\u25B6"; }
+  PLAYING = null;
+}
+
+function stopPreview(){
+  PLAY_SEQ++;
+  $("preview").pause();
+  litOff();
+  $("npStop").classList.add("hide");
+  NP_LABEL = "";
+  updateNP();
+}
+
+function playPreview(btn){
+  if (PLAYING === btn) return stopPreview();
+  const au = $("preview");
+  const seq = ++PLAY_SEQ;
+  litOff();
+  // swap the source rather than tearing the element down — load() mid-play
+  // makes Chrome pause the track it just started
+  au.pause();
+  au.src = btn.dataset.play;
+  au.play().then(() => {
+    if (seq !== PLAY_SEQ) return;            // a later click already took over
+    PLAYING = btn;
+    btn.dataset.on = "1";
+    btn.textContent = "\u25A0";
+    NP_LABEL = btn.dataset.label || "";
+    $("npStop").classList.remove("hide");
+    updateNP();
+  }).catch(err => {
+    if (seq === PLAY_SEQ && err && err.name !== "AbortError") songMsg("That preview wouldn't play.");
+  });
+}
+
 /* ---------------- catalogue search ---------------- */
 /* One iTunes request covers artists, albums and songs — grouping the three
    wrapperTypes here beats spending a request per kind against their throttle. */
@@ -1403,8 +1457,12 @@ function hitHTML(x, kind, i){
     sub = [primaryArtist(x.artistName || ""), cleanTitle(x.collectionName || ""),
            (x.releaseDate || "").slice(0,4)].filter(Boolean).join(" · ");
   }
-  return `<button class="hit" data-kind="${kind}" data-i="${i}">${art}` +
-    `<span class="hit-t"><b>${esc(title)}</b><span>${esc(sub)}</span></span></button>`;
+  const play = x.previewUrl
+    ? `<button class="play" data-play="${esc(x.previewUrl)}" data-label="${esc(primaryArtist(x.artistName||"") + " — " + title)}"` +
+      ` title="Play a 30-second preview" aria-label="Play a preview of ${esc(title)}">▶</button>`
+    : "";
+  return `<div class="hit" role="button" tabindex="0" data-kind="${kind}" data-i="${i}">${art}` +
+    `<span class="hit-t"><b>${esc(title)}</b><span>${esc(sub)}</span></span>${play}</div>`;
 }
 
 function drawResults(){
@@ -1519,9 +1577,19 @@ async function priceOne(a){
   }
 }
 
+$("sres").addEventListener("keydown", ev => {
+  const b = ev.target.closest(".hit");
+  if (!b || (ev.key !== "Enter" && ev.key !== " ")) return;
+  ev.preventDefault();
+  b.click();
+});
+$("npStop").addEventListener("click", stopPreview);
+$("preview").addEventListener("ended", stopPreview);
 $("songGo").addEventListener("click", catSearch);
 $("song").addEventListener("keydown", e => { if (e.key === "Enter") catSearch(); });
 $("sres").addEventListener("click", ev => {
+  const pl = ev.target.closest(".play");
+  if (pl){ ev.stopPropagation(); playPreview(pl); return; }
   const b = ev.target.closest(".hit");
   if (!b) return;
   const x = SRES[b.dataset.kind][+b.dataset.i];
