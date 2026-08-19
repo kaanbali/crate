@@ -120,6 +120,37 @@
   .album.sel{outline:3px solid var(--pink);outline-offset:3px}
   .dres{display:grid;gap:8px;margin-top:14px;text-align:left}
   .empty-actions{margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  .sheet{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-start;justify-content:center;
+    background:rgba(42,28,20,.55);padding:24px 16px;overflow:auto}
+  .sheet-in{background:var(--card);border:2.5px solid var(--ink);border-radius:var(--radius);
+    box-shadow:var(--hard);max-width:860px;width:100%;padding:20px;position:relative}
+  .sheet-x{position:absolute;top:14px;right:14px;padding:6px 12px;font-size:13px;border-width:2px;
+    box-shadow:var(--hard-sm);background:var(--card);color:var(--ink)}
+  .sheet-top{display:flex;gap:18px;flex-wrap:wrap}
+  .sheet-art{width:220px;height:220px;flex:none;border:2.5px solid var(--ink);border-radius:14px;
+    object-fit:cover;background:#F6E7CF}
+  .sheet-head{min-width:220px;flex:1}
+  .sheet-head h2{margin:0 0 4px;font-size:24px;line-height:1.15}
+  .sheet-head .who{margin:0 0 10px;color:var(--muted);font-weight:600}
+  .sheet-sec{margin-top:20px}
+  .sheet-sec h3{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
+  .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 16px;font-size:14px}
+  .facts b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:700}
+  .tracks{margin:0;padding:0;list-style:none;font-size:14px;columns:2;column-gap:24px}
+  .tracks li{padding:3px 0;break-inside:avoid;display:flex;gap:8px}
+  .tracks .pos{color:var(--muted);flex:none;min-width:26px}
+  .tracks .dur{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}
+  .press{display:grid;gap:8px}
+  .press-row{display:flex;align-items:center;gap:12px;border:2px solid var(--ink);border-radius:12px;
+    padding:8px 12px;background:var(--card);box-shadow:var(--hard-sm);font-size:13.5px}
+  .press-row .pmeta{min-width:0;flex:1}
+  .press-row b{display:block;font-size:14px}
+  .press-row span.pinfo{display:block;color:var(--muted);font-size:12.5px}
+  .press-row .pprice{font-weight:700;white-space:nowrap}
+  .press-row a{white-space:nowrap}
+  .notes{font-size:13.5px;white-space:pre-wrap;color:var(--ink);margin:0;max-height:180px;overflow:auto}
+  .sheet-play{margin-top:12px}
+  @media(max-width:560px){ .tracks{columns:1} .sheet-art{width:100%;height:auto;aspect-ratio:1} }
   .hit .play{margin-left:auto;flex:none;width:30px;height:30px;padding:0;border-radius:50%;
     font-size:12px;line-height:1;background:var(--sun);color:var(--ink);border-width:2px;box-shadow:var(--hard-sm)}
   .hit .play[data-on="1"]{background:var(--pink);color:#fff}
@@ -437,6 +468,8 @@
     </div>
     <div class="empty hide" id="empty"></div>
   </div>
+
+  <div class="sheet hide" id="sheet" role="dialog" aria-modal="true" aria-label="Album details"></div>
 
   <footer>
     Prices and pressing counts come live from the <b>Discogs</b> marketplace; cover art from the iTunes Search API. Nothing you paste is uploaded anywhere — it all runs in this page.<br>
@@ -1230,11 +1263,204 @@ async function addFromDiscogs(r){
   await priceOne(a);
 }
 
-/* replaced by the full release panel in the next step */
-function openDetail(a){
-  const el = document.querySelector(`.album[data-k="${CSS.escape(a.key)}"]`);
-  if (el) el.scrollIntoView({block:"center", behavior:"smooth"});
+/* ---------------- release detail panel ---------------- */
+/* Everything here is fetched only when a panel is opened, cached on the album
+   afterwards, and routed through dg() so it shares the one Discogs throttle.
+   Opening one album costs ~10 requests: the release, its pressings, and a
+   price per pressing shown. */
+const PRESS_MAX = 8;             // pressings we price; the rest are listed unpriced
+let SHEET_FOR = null;            // album whose panel is open
+
+function relId(url){
+  const m = String(url || "").match(/\/release\/(\d+)/) || String(url || "").match(/\/(\d+)(?:[?#]|$)/);
+  return m ? m[1] : null;
 }
+
+function fmtDetail(f){
+  const bits = [];
+  for (const x of (f || [])){
+    if (x.name) bits.push(x.name);
+    (x.descriptions || []).forEach(d => bits.push(d));
+    if (x.text) bits.push(x.text);          // "180g", "Gatefold", "Blue vinyl" live here
+  }
+  return [...new Set(bits)];
+}
+
+function openDetail(a){
+  SHEET_FOR = a;
+  $("sheet").classList.remove("hide");
+  drawSheet(a, a._detail ? "" : "Fetching the release from Discogs…");
+  if (!a._detail) loadDetail(a);
+  else if (!a.preview) loadPreview(a);
+}
+
+function closeSheet(){
+  SHEET_FOR = null;
+  $("sheet").classList.add("hide");
+  $("sheet").innerHTML = "";
+}
+
+async function loadDetail(a){
+  if (a._loading) return;
+  a._loading = true;
+  try{
+    let id = relId(a.sellUrl) || relId(a.discogsUrl);
+    if (!id){
+      // never searched this one yet — find its best vinyl release first
+      const d = await dg(`https://api.discogs.com/database/search?type=release&per_page=50` +
+                         `&format=Vinyl&artist=${enc(a.artist)}&release_title=${enc(a.album)}`);
+      const res = d.results || [];
+      if (!res.length){ drawSheet(a, "Discogs has no vinyl release for this one."); a._loading = false; return; }
+      const ranked = res.slice().sort((x,y) => scoreRelease(y,a) - scoreRelease(x,a));
+      id = String(ranked[0].id);
+    }
+    const rel = await dg(`https://api.discogs.com/releases/${enc(id)}`);
+    a._detail = {rel, versions:null};
+    a._hay = null;
+    if (!a.year && rel.year) a.year = String(rel.year);
+    drawSheet(a, "");
+    loadPreview(a);
+
+    // pressings, then a price for each — drawn as they land
+    const master = rel.master_id;
+    let versions;
+    if (master){
+      const v = await dg(`https://api.discogs.com/masters/${enc(master)}/versions?format=Vinyl&per_page=25`);
+      versions = (v.versions || []).map(x => ({
+        id:x.id, title:x.title, label:x.label, catno:x.catno, country:x.country,
+        released:x.released, format:x.format, price:null, cur:null, forSale:null, done:false
+      }));
+    } else {
+      versions = [{id:rel.id, title:rel.title, label:(rel.labels||[])[0] && rel.labels[0].name,
+        catno:(rel.labels||[])[0] && rel.labels[0].catno, country:rel.country,
+        released:String(rel.year||""), format:fmtDetail(rel.formats).join(", "),
+        price:null, cur:null, forSale:null, done:false}];
+    }
+    a._detail.versions = versions;
+    drawSheet(a, "");
+
+    const cur = $("cur").value;
+    for (const v of versions.slice(0, PRESS_MAX)){
+      if (SHEET_FOR !== a) break;                 // panel closed — stop spending requests
+      try{
+        const st = await dg(`https://api.discogs.com/marketplace/stats/${v.id}?curr_abbr=${cur}`);
+        v.price = st && st.lowest_price ? st.lowest_price.value : null;
+        v.cur = st && st.lowest_price ? (st.lowest_price.currency || cur) : cur;
+        v.forSale = st ? st.num_for_sale : null;
+      } catch(e){ /* leave this pressing unpriced */ }
+      v.done = true;
+      if (SHEET_FOR === a) drawSheet(a, "");
+    }
+  } catch(e){
+    drawSheet(a, "Couldn't reach Discogs just then.");
+  } finally {
+    a._loading = false;
+  }
+}
+
+/* a 30-second listen, from the same catalogue the art comes from */
+function loadPreview(a){
+  if (a.preview || a._prevTried) return;
+  a._prevTried = true;
+  artQ(async () => {
+    try{
+      const r = await fetch(`https://itunes.apple.com/search?term=${enc(a.artist + " " + a.album)}` +
+                            `&entity=song&limit=1`);
+      if (!r.ok) return;
+      const d = await r.json();
+      const hit = (d.results || [])[0];
+      if (hit && hit.previewUrl){
+        a.preview = hit.previewUrl;
+        a.previewName = hit.trackName || "";
+        if (SHEET_FOR === a) drawSheet(a, "");
+      }
+    } catch(e){ /* a missing preview is not worth surfacing */ }
+  });
+}
+
+function pressRow(v, a){
+  const bits = [v.country, v.released, v.label, v.catno, v.format].filter(Boolean).join(" · ");
+  const price = v.price != null
+    ? `<span class="pprice">${esc(CUR_SYM[v.cur] || "")}${v.price.toFixed(2)}</span>`
+    : `<span class="pprice" style="color:var(--muted);font-weight:600">${v.done ? "none for sale" : "…"}</span>`;
+  return `<div class="press-row">
+    <span class="pmeta"><b>${esc(v.title || a.album)}</b><span class="pinfo">${esc(bits)}</span></span>
+    ${price}
+    <a href="https://www.discogs.com/sell/release/${encodeURIComponent(v.id)}?ev=rb&format=Vinyl"
+       target="_blank" rel="noopener" class="key">Buy</a>
+  </div>`;
+}
+
+function drawSheet(a, note){
+  const d = a._detail;
+  const rel = d && d.rel;
+  const art = (rel && (rel.images || [])[0] && rel.images[0].uri) || a.art;
+  const labels = rel ? (rel.labels || []) : [];
+  const facts = [];
+  const fact = (k, v) => { if (v) facts.push(`<div><b>${esc(k)}</b>${esc(v)}</div>`); };
+  if (rel){
+    fact("Label", labels.map(l => l.name).join(", "));
+    fact("Catalogue no.", labels.map(l => l.catno).filter(Boolean).join(", "));
+    fact("Country", rel.country);
+    fact("Released", rel.released || rel.year);
+    fact("Format", fmtDetail(rel.formats).join(" · "));
+    fact("Genres", (rel.genres || []).join(", "));
+    fact("Styles", (rel.styles || []).join(", "));
+    const c = rel.community || {};
+    fact("Community", [c.have != null ? c.have.toLocaleString() + " have" : null,
+                       c.want != null ? c.want.toLocaleString() + " want" : null].filter(Boolean).join(" · "));
+    const r = c.rating || {};
+    fact("Rating", r.average ? `${r.average.toFixed(2)} / 5 from ${(r.count||0).toLocaleString()}` : "");
+  }
+  const tracks = rel && (rel.tracklist || []).length
+    ? `<div class="sheet-sec"><h3>Tracklist</h3><ul class="tracks">` +
+      rel.tracklist.map(t => `<li><span class="pos">${esc(t.position || "")}</span>` +
+        `<span>${esc(t.title || "")}</span>` +
+        (t.duration ? `<span class="dur">${esc(t.duration)}</span>` : "") + `</li>`).join("") +
+      `</ul></div>`
+    : "";
+  const press = d && d.versions
+    ? `<div class="sheet-sec"><h3>Vinyl pressings — pick the one you want</h3>` +
+      `<div class="press">${d.versions.map(v => pressRow(v, a)).join("")}</div>` +
+      (d.versions.length > PRESS_MAX
+        ? `<p class="sm" style="margin:8px 0 0">Prices checked on the first ${PRESS_MAX} to stay inside the Discogs rate limit.</p>` : "") +
+      `</div>`
+    : "";
+  const notes = rel && rel.notes
+    ? `<div class="sheet-sec"><h3>Release notes</h3><p class="notes">${esc(rel.notes)}</p></div>` : "";
+  const play = a.preview
+    ? `<button class="mini sheet-play" data-play="${esc(a.preview)}" ` +
+      `data-label="${esc(a.artist + " — " + (a.previewName || a.album))}">▶ Play a preview</button>` : "";
+
+  $("sheet").innerHTML = `<div class="sheet-in">
+    <button class="sheet-x" id="sheetX">Close</button>
+    <div class="sheet-top">
+      ${art ? `<img class="sheet-art" src="${esc(art)}" alt="">` : `<div class="sheet-art"></div>`}
+      <div class="sheet-head">
+        <h2>${esc(a.album || a.song || "Unknown album")}</h2>
+        <p class="who">${esc(a.artist)}</p>
+        ${priceHTML(a)}
+        <div class="links">${storeLinks(a).map(l =>
+          `<a href="${esc(l.url)}" target="_blank" rel="noopener"${l.key?' class="key"':""}>${l.name}</a>`).join("")}</div>
+        ${play}
+      </div>
+    </div>
+    ${note ? `<p class="sm" style="margin-top:14px">${esc(note)}</p>` : ""}
+    ${facts.length ? `<div class="sheet-sec"><h3>This pressing</h3><div class="facts">${facts.join("")}</div></div>` : ""}
+    ${tracks}
+    ${press}
+    ${notes}
+  </div>`;
+}
+
+$("sheet").addEventListener("click", ev => {
+  if (ev.target.id === "sheet" || ev.target.closest("#sheetX")) return closeSheet();
+  const pl = ev.target.closest("[data-play]");
+  if (pl) playPreview(pl);
+});
+document.addEventListener("keydown", ev => {
+  if (ev.key === "Escape" && SHEET_FOR) closeSheet();
+});
 
 function syncChips(){
   document.querySelectorAll("#chips .chip").forEach(c =>
@@ -1833,6 +2059,13 @@ $("fetch").addEventListener("click", runPrices);
 $("stop").addEventListener("click", () => { ABORT = true; });
 $("export").addEventListener("click", exportCSV);
 $("grid").addEventListener("click", ev => {
+  const sleeve = ev.target.closest(".sleeve");
+  if (sleeve){
+    const card = sleeve.closest(".album");
+    const a = ALBUMS.find(x => x.key === card.dataset.k);
+    if (a) openDetail(a);
+    return;
+  }
   const btn = ev.target.closest(".tick");
   if (!btn) return;
   const card = btn.closest(".album");
