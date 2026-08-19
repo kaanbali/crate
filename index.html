@@ -111,6 +111,7 @@
   .mini:hover{box-shadow:3px 4px 0 rgba(42,28,20,.92)}
 
   .sres{margin-top:12px;display:grid;gap:8px}
+  .sgroup{margin:6px 0 0;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.14em}
   .hit{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
     background:var(--card);color:var(--ink);padding:8px 12px;font-size:14px;box-shadow:var(--hard-sm)}
   .hit:hover{box-shadow:3px 4px 0 rgba(42,28,20,.92)}
@@ -325,10 +326,10 @@
       <button class="ghost" id="demo">Try a sample</button>
     </div>
 
-    <div class="or">or look up one song</div>
+    <div class="or">or search the catalogue</div>
     <div class="row">
-      <input type="search" id="song" placeholder="Song name, or artist and song" autocomplete="off">
-      <button class="ghost" id="songGo">Find the album</button>
+      <input type="search" id="song" placeholder="Song, album or artist" autocomplete="off">
+      <button class="ghost" id="songGo">Search</button>
     </div>
     <p class="sm" id="songMsg" style="margin:10px 0 0"></p>
     <div class="sres hide" id="sres"></div>
@@ -1379,34 +1380,70 @@ async function lastfmImport(){
 $("lfmGo").addEventListener("click", lastfmImport);
 $("lfmUser").addEventListener("keydown", e => { if (e.key === "Enter") lastfmImport(); });
 
-/* ---------------- single-song lookup ---------------- */
-/* Same iTunes catalogue enrich() uses, driven by hand: one song in, its album out,
-   then straight through the normal pricing path. */
-let SHITS = [];
-const SFOUND = new Map();     // album key -> songs already added by hand, so a re-add doesn't re-count
+/* ---------------- catalogue search ---------------- */
+/* One iTunes request covers artists, albums and songs — grouping the three
+   wrapperTypes here beats spending a request per kind against their throttle. */
+let SRES = {artist:[], collection:[], track:[]};
+let SCREEN = "";                 // artist name when showing one artist's records
 
 function songMsg(t){ $("songMsg").textContent = t; }
 
-async function songSearch(){
+function hitHTML(x, kind, i){
+  const art = x.artworkUrl100 ? `<img src="${esc(x.artworkUrl100)}" alt="">` : "";
+  let title, sub;
+  if (kind === "artist"){
+    title = x.artistName || "";
+    sub = [x.primaryGenreName, "see their records"].filter(Boolean).join(" · ");
+  } else if (kind === "collection"){
+    title = cleanTitle(x.collectionName || "");
+    sub = [primaryArtist(x.artistName || ""), (x.releaseDate || "").slice(0,4),
+           x.trackCount ? x.trackCount + " tracks" : null, x.primaryGenreName].filter(Boolean).join(" · ");
+  } else {
+    title = x.trackName || "";
+    sub = [primaryArtist(x.artistName || ""), cleanTitle(x.collectionName || ""),
+           (x.releaseDate || "").slice(0,4)].filter(Boolean).join(" · ");
+  }
+  return `<button class="hit" data-kind="${kind}" data-i="${i}">${art}` +
+    `<span class="hit-t"><b>${esc(title)}</b><span>${esc(sub)}</span></span></button>`;
+}
+
+function drawResults(){
+  const parts = [];
+  const group = (kind, label) => {
+    const list = SRES[kind];
+    if (!list.length) return;
+    if (label) parts.push(`<p class="sgroup">${label}</p>`);
+    parts.push(list.map((x,i) => hitHTML(x, kind, i)).join(""));
+  };
+  if (SCREEN) parts.push(`<p class="sgroup">Records by ${esc(SCREEN)}</p>`);
+  else group("artist", "Artists");
+  group("collection", SCREEN ? "" : "Albums");
+  if (!SCREEN) group("track", "Songs");
+  $("sres").innerHTML = parts.join("");
+  $("sres").classList.toggle("hide", !parts.length);
+}
+
+async function catSearch(){
   const q = $("song").value.trim();
   if (!q) return;
   $("songGo").disabled = true;
-  $("sres").classList.add("hide");
+  SCREEN = "";
   songMsg("Searching the catalogue…");
   try{
-    const r = await fetch(`https://itunes.apple.com/search?term=${enc(q)}&entity=song&limit=8`);
+    const r = await fetch(`https://itunes.apple.com/search?term=${enc(q)}&media=music` +
+                          `&entity=musicArtist,album,song&limit=12`);
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
-    SHITS = (d.results || []).filter(x => x.collectionName && x.artistName);
-    if (!SHITS.length){ songMsg("No song by that name — try adding the artist."); return; }
-    songMsg("Pick the right one and it goes in your crate, priced.");
-    $("sres").innerHTML = SHITS.map((x,i) =>
-      `<button class="hit" data-i="${i}">` +
-      (x.artworkUrl100 ? `<img src="${esc(x.artworkUrl100)}" alt="">` : "") +
-      `<span class="hit-t"><b>${esc(x.trackName || "")}</b>` +
-      `<span>${esc(primaryArtist(x.artistName))} · ${esc(cleanTitle(x.collectionName))}` +
-      (x.releaseDate ? " · " + esc(x.releaseDate.slice(0,4)) : "") + `</span></span></button>`).join("");
-    $("sres").classList.remove("hide");
+    const all = d.results || [];
+    SRES = {
+      artist:     all.filter(x => x.wrapperType === "artist" && x.artistName).slice(0,3),
+      collection: all.filter(x => x.wrapperType === "collection" && x.collectionName).slice(0,5),
+      track:      all.filter(x => x.wrapperType === "track" && x.collectionName).slice(0,6)
+    };
+    const n = SRES.artist.length + SRES.collection.length + SRES.track.length;
+    if (!n){ songMsg("Nothing found — try a different spelling."); $("sres").classList.add("hide"); return; }
+    songMsg("Pick an album or song to put it in your crate. Pick an artist to see their records.");
+    drawResults();
   } catch(e){
     songMsg("Couldn't reach the catalogue just then. Try again in a moment.");
   } finally {
@@ -1414,26 +1451,50 @@ async function songSearch(){
   }
 }
 
-async function addSong(x){
+/* an artist's own discography, newest first */
+async function showArtist(x){
+  $("songGo").disabled = true;
+  songMsg(`Fetching ${x.artistName}'s records…`);
+  try{
+    const r = await fetch(`https://itunes.apple.com/lookup?id=${enc(x.artistId)}&entity=album&limit=40`);
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const albums = (d.results || []).filter(v =>
+      v.wrapperType === "collection" && v.collectionName && !/ - Single$/i.test(v.collectionName));
+    if (!albums.length){ songMsg(`No albums listed for ${x.artistName}.`); return; }
+    albums.sort((u,v) => String(v.releaseDate || "").localeCompare(String(u.releaseDate || "")));
+    SRES = {artist:[], collection:albums, track:[]};
+    SCREEN = x.artistName;
+    songMsg(`${albums.length} record${albums.length===1?"":"s"} — pick one to price it.`);
+    drawResults();
+  } catch(e){
+    songMsg("Couldn't reach the catalogue just then. Try again in a moment.");
+  } finally {
+    $("songGo").disabled = false;
+  }
+}
+
+const SFOUND = new Map();     // album key -> what's already been added by hand, so a re-add doesn't re-count
+
+async function addPick(x){
   const artist = primaryArtist(x.artistName || "");
   const album  = cleanTitle(x.collectionName || "");
   if (!artist || !album){ songMsg("That one has no album listed — try another version."); return; }
   const key = norm(artist) + "|" + norm(album);
+  const mark = norm(x.trackName || "") || "\u0000album";
   const prev = ALBUMS.find(v => v.key === key);
   const already = !!prev;
   const songs = SFOUND.get(key) || new Set();
-  const sameSong = songs.has(norm(x.trackName || ""));
+  const seen = songs.has(mark) || (!x.trackName && already);
   const wasTracks = prev ? prev.tracks : 0;
   mergeItems([{artist, album, song:x.trackName, year:(x.releaseDate || "").slice(0,4)}],
              "tracks in your playlist");
   const a = ALBUMS.find(v => v.key === key);
-  if (a && sameSong) a.tracks = wasTracks;          // same song twice isn't two tracks
-  songs.add(norm(x.trackName || ""));
+  if (a && seen) a.tracks = wasTracks;          // the same pick twice isn't two tracks
+  songs.add(mark);
   SFOUND.set(key, songs);
   if (a && !a.art && x.artworkUrl100) a.art = x.artworkUrl100.replace(/100x100bb/, "400x400bb");
   if (a) absorbInfo(a, x);
-  $("sres").classList.add("hide");
-  $("song").value = "";
   $("results").classList.remove("hide");
   render();
   $("results").scrollIntoView({behavior:"smooth", block:"start"});
@@ -1458,11 +1519,14 @@ async function priceOne(a){
   }
 }
 
-$("songGo").addEventListener("click", songSearch);
-$("song").addEventListener("keydown", e => { if (e.key === "Enter") songSearch(); });
+$("songGo").addEventListener("click", catSearch);
+$("song").addEventListener("keydown", e => { if (e.key === "Enter") catSearch(); });
 $("sres").addEventListener("click", ev => {
   const b = ev.target.closest(".hit");
-  if (b) addSong(SHITS[+b.dataset.i]);
+  if (!b) return;
+  const x = SRES[b.dataset.kind][+b.dataset.i];
+  if (!x) return;
+  if (b.dataset.kind === "artist") showArtist(x); else addPick(x);
 });
 
 $("go").addEventListener("click", () => ingest($("paste").value));
