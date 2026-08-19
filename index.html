@@ -423,6 +423,25 @@
     </details>
 
     <details class="adv">
+      <summary>Import from ListenBrainz</summary>
+      <div class="adv-body">
+        <p style="margin:0 0 10px">The open-source alternative to Last.fm. No key and no sign-in at all — a public username is enough. Cover art comes from the Cover Art Archive.</p>
+        <div class="row">
+          <input type="text" id="lbUser" placeholder="ListenBrainz username" autocomplete="off" spellcheck="false">
+          <select id="lbRange">
+            <option value="month">Last month</option>
+            <option value="year" selected>Last year</option>
+            <option value="all_time">All time</option>
+            <option value="week">Last week</option>
+          </select>
+          <button class="ghost" id="lbGo">Import my albums</button>
+        </div>
+        <p class="sm" id="lbMsg" style="margin:10px 0 0"></p>
+        <p style="margin:10px 0 0">Don't have one? <a href="https://listenbrainz.org" target="_blank" rel="noopener" style="color:var(--accent)">listenbrainz.org</a> is free, and it can import your Last.fm history.</p>
+      </div>
+    </details>
+
+    <details class="adv">
       <summary>Speed &amp; settings</summary>
       <div class="adv-body">
         <p style="margin:0 0 10px">Price lookups run against Discogs. Without a key you get <b>25 requests a minute</b> (about 11 albums), which is fine for a small batch. A free personal access token lifts that to 60/min and adds cover art from Discogs.</p>
@@ -1060,7 +1079,7 @@ function priceHTML(a){
 
 function cardHTML(a){
   const artImg = a.art
-    ? `<img class="art" src="${esc(a.art)}" alt="" loading="lazy" onerror="this.onerror=null;var e=this;setTimeout(function(){if(e.parentNode)e.outerHTML=PH},0)">`
+    ? `<img class="art" data-src="${esc(a.art)}" alt="" decoding="async" onerror="this.onerror=null;var e=this;setTimeout(function(){if(e.parentNode)e.outerHTML=PH},0)">`
     : PH;
   const art = `<span class="sleeve">${artImg}${DISC}</span>`;
   const links = storeLinks(a).map(l =>
@@ -1099,7 +1118,7 @@ function paint(a){
     return;
   }
   const el = document.querySelector(`.album[data-k="${CSS.escape(a.key)}"]`);
-  if (el){ el.innerHTML = cardHTML(a); el.classList.toggle("got", a.got); }
+  if (el){ el.innerHTML = cardHTML(a); el.classList.toggle("got", a.got); pumpArt(); }
 }
 
 /* Everything worth searching on, normalised once and cached — rebuilding this
@@ -1179,6 +1198,36 @@ function render(){
 let SHOW_CAP = 300;        // cards in the DOM at once; the filter still sees everything
 let SEL = -1;              // keyboard cursor into the visible list
 
+/* Sleeves come from hosts that queue hard — the Cover Art Archive stalls if you
+   ask for 200 at once. Hand out a few requests at a time, nearest the viewport
+   first, so the covers you're actually looking at arrive quickly. */
+const ART_INFLIGHT_MAX = 6;
+let artInflight = 0;
+
+function pumpArt(){
+  if (artInflight >= ART_INFLIGHT_MAX) return;
+  const waiting = [...document.querySelectorAll("#grid img.art[data-src]")];
+  if (!waiting.length) return;
+  const mid = window.scrollY + window.innerHeight / 2;
+  waiting.sort((x,y) =>
+    Math.abs(x.getBoundingClientRect().top + window.scrollY - mid) -
+    Math.abs(y.getBoundingClientRect().top + window.scrollY - mid));
+  while (artInflight < ART_INFLIGHT_MAX && waiting.length){
+    const img = waiting.shift();
+    const url = img.dataset.src;
+    img.removeAttribute("data-src");
+    artInflight++;
+    const done = () => { artInflight--; pumpArt(); };
+    img.addEventListener("load", done, {once:true});
+    img.addEventListener("error", done, {once:true});
+    img.src = url;
+  }
+}
+
+let artPumpT = null;
+function schedulePump(){ clearTimeout(artPumpT); artPumpT = setTimeout(pumpArt, 60); }
+window.addEventListener("scroll", schedulePump, {passive:true});
+
 function renderGrid(){
   const list = visible();
   const grid = $("grid");
@@ -1191,6 +1240,7 @@ function renderGrid(){
   paintSel();
   updateCount(list.length, shown.length);
   updateStats();
+  pumpArt();
 }
 
 function updateCount(total, shown){
@@ -1786,6 +1836,73 @@ function readFiles(files){
   });
 }
 
+/* ---------------- ListenBrainz import ---------------- */
+/* Roadmap phase 2b. Zero auth, CORS open, and the response carries Cover Art
+   Archive ids, so sleeves cost no extra request. Their limit is ~30 calls in a
+   short window and the remaining count comes back in a header we can read. */
+let LB_LEFT = null;
+
+function caaArt(g){
+  return g.caa_id && g.caa_release_mbid
+    ? `https://coverartarchive.org/release/${g.caa_release_mbid}/${g.caa_id}-250.jpg`
+    : null;
+}
+
+async function listenbrainzImport(){
+  const user = $("lbUser").value.trim();
+  const range = $("lbRange").value;
+  if (!user) return void ($("lbMsg").textContent = "Type your ListenBrainz username first.");
+  if (LB_LEFT != null && LB_LEFT <= 0){
+    $("lbMsg").textContent = "ListenBrainz is rate-limiting us. Give it a minute.";
+    return;
+  }
+  $("lbGo").disabled = true;
+  $("lbMsg").textContent = "Fetching your albums…";
+  try{
+    const r = await fetch(`https://api.listenbrainz.org/1/stats/user/${enc(user)}` +
+                          `/release-groups?range=${enc(range)}&count=200`);
+    const left = r.headers.get("x-ratelimit-remaining");
+    if (left != null) LB_LEFT = parseInt(left, 10);
+    if (r.status === 404){ $("lbMsg").textContent = "No ListenBrainz user by that name — check the spelling."; return; }
+    if (r.status === 204){ $("lbMsg").textContent = "Nothing listened to in that range — try a longer one."; return; }
+    if (r.status === 429){ $("lbMsg").textContent = "ListenBrainz is rate-limiting us. Give it a minute."; return; }
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const groups = (d.payload && d.payload.release_groups) || [];
+    if (!groups.length){
+      $("lbMsg").textContent = "Nothing listened to in that range — try a longer one.";
+      return;
+    }
+    const items = groups
+      .filter(g => g.release_group_name && g.artist_name)
+      .map(g => ({artist:g.artist_name, album:g.release_group_name, plays:g.listen_count || 1}));
+    const art = new Map(groups.map(g =>
+      [norm(g.artist_name) + "|" + norm(g.release_group_name), caaArt(g)]));
+
+    mergeItems(items, "plays");
+    let covered = 0;
+    for (const a of ALBUMS){
+      if (a.art) continue;
+      const u = art.get(a.key);
+      if (u){ a.art = u; covered++; }
+      a._hay = null;
+    }
+    $("results").classList.remove("hide");
+    render();
+    $("results").scrollIntoView({behavior:"smooth", block:"start"});
+    queueEnrichment();
+    $("lbMsg").textContent = `Brought in ${items.length} album${items.length===1?"":"s"}` +
+      (covered ? ` with ${covered} cover${covered===1?"":"s"} from the Cover Art Archive.` : ".");
+  } catch(e){
+    $("lbMsg").textContent = "Couldn't reach ListenBrainz just then. Try again in a moment.";
+  } finally {
+    $("lbGo").disabled = false;
+  }
+}
+
+$("lbGo").addEventListener("click", listenbrainzImport);
+$("lbUser").addEventListener("keydown", e => { if (e.key === "Enter") listenbrainzImport(); });
+
 /* ---------------- Last.fm import ---------------- */
 /* One integration covers every service that scrobbles. Public data, so a username
    and a free key are enough — no OAuth, no user login. */
@@ -1834,6 +1951,7 @@ async function lastfmImport(){
       if (a.art) continue;
       const u = art.get(a.key);
       if (u){ a.art = u; covered++; }
+      a._hay = null;
     }
     $("results").classList.remove("hide");
     render();
