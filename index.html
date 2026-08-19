@@ -694,7 +694,8 @@ function mergeItems(items, unit){
         key, artist: artist || "", album: album || "", song, tracks:0, unit,
         year:(String(it.year||"").match(/\d{4}/)||[""])[0],
         pending, art:null, state:"idle", price:null, cur:null, forSale:null,
-        pressings:null, want:null, have:null, discogsUrl:null, sellUrl:null, got:false
+        pressings:null, want:null, have:null, discogsUrl:null, sellUrl:null, got:false,
+        genre:null, trackCount:null, label:null
       };
       map.set(key, a);
     }
@@ -702,6 +703,18 @@ function mergeItems(items, unit){
     if (a.unit !== unit) a.unit = unit;
   }
   ALBUMS = [...map.values()];
+}
+
+/* iTunes hands back more than art in the same response — keep the useful parts
+   rather than spending another request on them later */
+function absorbInfo(a, x){
+  if (!a.genre && x.primaryGenreName) a.genre = x.primaryGenreName;
+  if (!a.trackCount && x.trackCount) a.trackCount = x.trackCount;
+  // "℗ 2007 XL Recordings" and "℗ Originally released 1959 Sony Music" both appear
+  if (!a.label && x.copyright){
+    const l = String(x.copyright).replace(/^\s*[℗©]\s*(?:originally released\s*)?(?:\d{4}\s*)?/i, "").trim();
+    if (l && l.length < 60) a.label = l;
+  }
 }
 
 /* once iTunes tells us the real artist/album, re-key and fold duplicates together */
@@ -818,6 +831,7 @@ async function enrich(a){
       }
       if (best.artworkUrl100) a.art = best.artworkUrl100.replace(/100x100bb/, "400x400bb");
       if (!a.year && best.releaseDate) a.year = best.releaseDate.slice(0,4);
+      absorbInfo(a, best);
     }
 
     if (wasPending){
@@ -985,6 +999,8 @@ function cardHTML(a){
       : `${a.tracks} ${a.tracks===1 ? unit.replace("tracks","track") : unit}`,
     a.pending ? "looking up the album…" : null,
     a.year ? a.year : null,
+    a.genre ? a.genre : null,
+    a.trackCount ? `${a.trackCount} tracks` : null,
     (a.want != null && a.want > 500) ? `${a.want.toLocaleString()} want it` : null
   ].filter(Boolean).map(p => `<span class="pill">${esc(p)}</span>`).join("");
 
@@ -1092,13 +1108,15 @@ function flowInfo(a){
   const pills = [
     unit === "plays" ? `${a.tracks.toLocaleString()} play${a.tracks===1?"":"s"}`
                      : `${a.tracks} ${a.tracks===1 ? unit.replace("tracks","track") : unit}`,
+    a.genre ? a.genre : null,
+    a.trackCount ? `${a.trackCount} tracks` : null,
     (a.want != null && a.want > 500) ? `${a.want.toLocaleString()} want it` : null
   ].filter(Boolean).map(p => `<span class="pill">${esc(p)}</span>`).join(" ");
   const links = storeLinks(a).map(l =>
     `<a href="${esc(l.url)}" target="_blank" rel="noopener"${l.key?' class="key"':""}>${l.name}</a>`).join("");
   $("finfo").innerHTML = `
     <h2>${esc(a.album || (a.song ? a.song + " (album unknown)" : "Unknown album"))}</h2>
-    <p class="fartist">${esc(a.artist)}${a.year ? " · " + esc(a.year) : ""}</p>
+    <p class="fartist">${esc(a.artist)}${a.year ? " · " + esc(a.year) : ""}${a.label ? " · " + esc(a.label) : ""}</p>
     <div style="margin-bottom:8px">${pills}</div>
     ${priceHTML(a)}
     <div class="links">${links}</div>
@@ -1413,6 +1431,7 @@ async function addSong(x){
   songs.add(norm(x.trackName || ""));
   SFOUND.set(key, songs);
   if (a && !a.art && x.artworkUrl100) a.art = x.artworkUrl100.replace(/100x100bb/, "400x400bb");
+  if (a) absorbInfo(a, x);
   $("sres").classList.add("hide");
   $("song").value = "";
   $("results").classList.remove("hide");
