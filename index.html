@@ -344,6 +344,29 @@
     </details>
 
     <details class="adv">
+      <summary>Import straight from Last.fm</summary>
+      <div class="adv-body">
+        <p style="margin:0 0 10px">If you scrobble to Last.fm, skip the export files — your listening comes in directly. Last.fm collects scrobbles from Spotify, Apple Music, Tidal, Deezer, YouTube Music and Bandcamp, so this covers whichever you use.</p>
+        <div class="row">
+          <input type="text" id="lfmUser" placeholder="Last.fm username" autocomplete="off" spellcheck="false">
+          <select id="lfmPeriod">
+            <option value="1month">Last month</option>
+            <option value="3month">Last 3 months</option>
+            <option value="6month">Last 6 months</option>
+            <option value="12month" selected>Last 12 months</option>
+            <option value="overall">All time</option>
+            <option value="7day">Last 7 days</option>
+          </select>
+          <button class="ghost" id="lfmGo">Import my albums</button>
+        </div>
+        <p class="sm" id="lfmMsg" style="margin:10px 0 0"></p>
+        <label class="sm" style="display:block;margin-top:12px">Last.fm API key (free — never leaves this page)</label>
+        <input type="text" id="lfmKey" placeholder="paste key here" autocomplete="off" spellcheck="false">
+        <p style="margin:10px 0 0">Get one in seconds at <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener" style="color:var(--accent)">last.fm/api/account/create</a> — any name and description will do.</p>
+      </div>
+    </details>
+
+    <details class="adv">
       <summary>Speed &amp; settings</summary>
       <div class="adv-body">
         <p style="margin:0 0 10px">Price lookups run against Discogs. Without a key you get <b>25 requests a minute</b> (about 11 albums), which is fine for a small batch. A free personal access token lifts that to 60/min and adds cover art from Discogs.</p>
@@ -1272,6 +1295,71 @@ function readFiles(files){
     r.readAsArrayBuffer(f);
   });
 }
+
+/* ---------------- Last.fm import ---------------- */
+/* One integration covers every service that scrobbles. Public data, so a username
+   and a free key are enough — no OAuth, no user login. */
+const LFM_PLACEHOLDER = "2a96cbd8b46e442fc41c2b86b821562f";   // their "no cover" image
+const LFM_ERR = {6:"No Last.fm user by that name — check the spelling.",
+                 10:"That API key wasn't accepted. Check you copied all of it.",
+                 17:"That profile is private, so its albums can't be read.",
+                 29:"Last.fm is rate-limiting us. Give it a minute and try again."};
+
+function lfmArt(images){
+  const big = (images || []).slice().reverse().find(i => i["#text"] && !i["#text"].includes(LFM_PLACEHOLDER));
+  return big ? big["#text"] : null;
+}
+
+async function lastfmImport(){
+  const user = $("lfmUser").value.trim();
+  const key  = $("lfmKey").value.trim();
+  const per  = $("lfmPeriod").value;
+  if (!user) return void ($("lfmMsg").textContent = "Type your Last.fm username first.");
+  if (!key)  return void ($("lfmMsg").textContent = "Paste a Last.fm API key — the link below gets you one free.");
+
+  $("lfmGo").disabled = true;
+  $("lfmMsg").textContent = "Fetching your albums…";
+  try{
+    const url = "https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums" +
+                `&user=${enc(user)}&period=${enc(per)}&limit=200&api_key=${enc(key)}&format=json`;
+    const r = await fetch(url);
+    const d = await r.json().catch(() => null);
+    if (!d) throw new Error("unreadable");
+    if (d.error){ $("lfmMsg").textContent = LFM_ERR[d.error] || `Last.fm said: ${d.message || "something went wrong"}`; return; }
+
+    const list = (d.topalbums && d.topalbums.album) || [];
+    if (!list.length){
+      $("lfmMsg").textContent = "Nothing scrobbled in that period — try a longer one.";
+      return;
+    }
+    const items = list
+      .filter(x => x.name && x.artist && x.artist.name)
+      .map(x => ({artist:x.artist.name, album:x.name, plays:parseInt(x.playcount, 10) || 1}));
+    const art = new Map(list.map(x => [norm(x.artist && x.artist.name) + "|" + norm(x.name), lfmArt(x.image)]));
+
+    mergeItems(items, "plays");
+    // Last.fm ships its own covers, so most albums skip the iTunes art queue entirely
+    let covered = 0;
+    for (const a of ALBUMS){
+      if (a.art) continue;
+      const u = art.get(a.key);
+      if (u){ a.art = u; covered++; }
+    }
+    $("results").classList.remove("hide");
+    render();
+    $("results").scrollIntoView({behavior:"smooth", block:"start"});
+    queueEnrichment();
+    $("lfmMsg").textContent = `Brought in ${items.length} album${items.length===1?"":"s"}` +
+      (covered ? ` with ${covered} cover${covered===1?"":"s"} straight from Last.fm.` : ".");
+  } catch(e){
+    $("lfmMsg").textContent = "Couldn't reach Last.fm just then. Try again in a moment.";
+  } finally {
+    $("lfmGo").disabled = false;
+  }
+}
+
+$("lfmGo").addEventListener("click", lastfmImport);
+$("lfmUser").addEventListener("keydown", e => { if (e.key === "Enter") lastfmImport(); });
 
 /* ---------------- single-song lookup ---------------- */
 /* Same iTunes catalogue enrich() uses, driven by hand: one song in, its album out,
