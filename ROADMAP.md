@@ -22,12 +22,13 @@ list. This is the single biggest gap in daily usability.
   because of an artifact-environment restriction; on GitHub Pages it's fine.)
 - Keep the CSV export as-is — it's for humans, JSON is for the app.
 
-## Phase 2 — Import listening history from any service
+## Phase 2 — Import listening history from any service  ✅ DONE (Aug 2026)
 
 Decision: **do NOT build direct Spotify OAuth.** Since Feb 2026, Spotify dev-mode apps require the
 owner to hold Premium and are capped at 5 users — unshippable for a public site. Instead use
 scrobbler aggregators, which cover every service at once.
 
+**2a. Last.fm (primary).** ✅ built — username + key, all six periods, placeholder art filtered.
 **2a. Last.fm (primary).** Free API key, CORS open (verified). No user login needed — a username
 is enough for public profiles.
 - `user.getTopAlbums` with `period` = 7day / 1month / 3month / 6month / 12month / overall.
@@ -37,6 +38,7 @@ is enough for public profiles.
 - Why it matters: Last.fm collects scrobbles from Spotify (official integration), Tidal, Deezer,
   Apple Music, YouTube Music and Bandcamp — one integration, every platform.
 
+**2b. ListenBrainz (secondary, even easier).** ✅ built — no key, Cover Art Archive sleeves, rate-limit header respected.
 **2b. ListenBrainz (secondary, even easier).** Zero auth, CORS open (verified).
 - `GET https://api.listenbrainz.org/1/stats/user/{name}/release-groups?range=month|year|all_time`
 - Returns MusicBrainz IDs → can chain to Cover Art Archive for artwork.

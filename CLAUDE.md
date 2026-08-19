@@ -1,6 +1,6 @@
-# Crate — vinyl shopping list from playlist exports
+# Crate — music discovery, ending in a vinyl shopping list
 
-Single-file web app (`index.html` — everything inline: CSS, JS, no build step, no dependencies, no backend). The user drops in a music-service export; the app rolls tracks up into unique albums, finds vinyl pressings on Discogs with live marketplace prices, and gives buy links. Two views: card grid and an iTunes-style Cover Flow (CSS 3D).
+Single-file web app (`index.html` — everything inline: CSS, JS, no build step, no dependencies, no backend). Records get in four ways: a music-service export, a Last.fm or ListenBrainz username, a catalogue search (song / album / artist), or a Discogs lookup from the filter box. The app rolls tracks up into unique albums, finds vinyl pressings on Discogs with live marketplace prices, and gives buy links. Two views: card grid and an iTunes-style Cover Flow (CSS 3D).
 
 Built by Kaan with Claude (Cowork), August 2026. UK-based user; default currency GBP.
 
@@ -10,7 +10,12 @@ Built by Kaan with Claude (Cowork), August 2026. UK-based user; default currency
 - **Pending albums** — play-history exports often name the song but not the album (modern Play Activity has NO artist column at all). Those get key `?|artist|song` and `pending:true`; `enrich()` resolves them against the iTunes Search API, then `rekey()` re-keys/merges. `enrich()` also fetches cover art for everyone.
 - **Pricing** — `fetchVinyl()`: Discogs search (format=Vinyl, artist+release_title), fallback loose search, then `scoreRelease()` ranks pressings and the top ≤3 get marketplace/stats price checks; cheapest in-stock wins, early-stop below the CHEAP threshold (~£25). This deliberately prefers an in-print reissue over a pricey collector's original.
 - **Throttling** — `makeQueue(gapMs)` promise chains. CRITICAL: `dg()` routes every individual Discogs REQUEST through `discQ` (25/min anonymous, 60/min with user token). Do not re-introduce per-album pacing — an album makes up to 5 requests. iTunes goes through `artQ` (1.4s gap) with `ART_BUDGET` (400) and a 90s backoff on 403/429 (`ART_PAUSE_UNTIL`).
-- **Views** — `render()` dispatches to `renderGrid()` / `renderFlow()` on `VIEW`. Cover Flow: `FLIST`/`FCUR`, transforms in `updateFlow()` (responsive: `compact` when stage < 560px). `paint(a)` updates one album in whichever view is live.
+- **Catalogue search** — `catSearch()` makes ONE iTunes request with `entity=musicArtist,album,song` and groups the three `wrapperType`s; `showArtist()` drills into a discography via `/lookup?id=&entity=album`. `addPick()` puts a hit in the crate and prices it. `SFOUND` stops a re-added pick counting twice.
+- **Filtering** — `visible()` is two-pass: substring over a cached per-album haystack (`hay()`, cleared by setting `a._hay = null`), then edit distance (`lev()`, counts a neighbour swap as one) only if that found nothing. `CHIPS` holds the owned/priced/etc toggles. When nothing matches, `askDiscogs()` offers the wider catalogue through `dg()`.
+- **Detail panel** — `openDetail()` → `loadDetail()`: `/releases/{id}`, then `/masters/{id}/versions`, then a `/marketplace/stats` per pressing (capped at `PRESS_MAX`). Cached on `a._detail`, so reopening costs nothing; aborts if `SHEET_FOR` changes mid-flight.
+- **Previews** — iTunes `previewUrl`, played through the Now Playing turntable. `PLAY_SEQ` guards against a fast second click, since `play()` resolves async.
+- **Voice** — `setupMic()` feature-detects `webkitSpeechRecognition` and hides the button when absent.
+- **Views** — `render()` dispatches to `renderGrid()` / `renderFlow()` on `VIEW`. `renderGrid()` draws a `SHOW_CAP` window (filtering still sees everything) and hands cover URLs to `pumpArt()`. Cover Flow: `FLIST`/`FCUR`, transforms in `updateFlow()` (responsive: `compact` when stage < 560px). `paint(a)` updates one album in whichever view is live.
 
 ## Invariants — do not break
 
@@ -21,6 +26,10 @@ Built by Kaan with Claude (Cowork), August 2026. UK-based user; default currency
 - `scoreRelease()` penalties (singles/7" −80, box sets −60, picture discs −40) exist because a wildly popular 7" of a title track can out-`have` the LP. Title/artist bonuses are skipped when `norm()` returns "" (non-Latin titles) — `"".includes` is true for everything.
 - CSV export: keep the `﻿` BOM (Excel/UTF-8), the formula-injection prefix (`'` before leading `=+-@`), CRLF line endings.
 - Scripts detect Apple's desktop playlist export by BOM: UTF-16LE + CR-only line endings (`readFiles` decodes by BOM sniff).
+- Cover images are handed out by `pumpArt()`, at most `ART_INFLIGHT_MAX` at a time. Do NOT put a plain `src` back on card art: the Cover Art Archive queues so hard that 200 at once never complete, and every sleeve stays blank.
+- `norm()` folds ligatures (æ→ae, ø→o, ß→ss…) as well as accents — NFD leaves ligatures alone, which turned "Ágætis" into "a tis". It sets album keys, so changing it changes merging.
+- Anything cached off an album (`_hay`, `_detail`) must be invalidated when the fields behind it change.
+- `.hit` rows are divs, not buttons — they contain a real play button, and a nested button gets hoisted out by the parser.
 
 ## Format notes (hard-won, verified against real files)
 
@@ -40,8 +49,8 @@ When changing parsing or state logic, run `test:formats` and `test:resilience` f
 ## Known limitations / roadmap (biggest value first)
 
 1. "N pressings" uses Discogs `pagination.items` from a fuzzy search — overstates for generic titles ("Greatest Hits"). The "not on vinyl" verdict only inspects the first 50 all-format results.
-2. Grid/Cover Flow render every album eagerly — fine to ~500 albums, janky at 2,000+ (full library imports). Needs windowing/virtualization and incremental rendering.
-3. No persistence: wishlist/owned marks and prices die with the tab (artifact context has no localStorage). Options: export/import a JSON snapshot, or "copy state as URL hash".
+2. Cover Flow still renders every album eagerly; the grid is capped at `SHOW_CAP` with no "show more" control yet, so a 2,000-album library is browsable but not fully reachable by scrolling.
+3. No persistence: wishlist/owned marks, prices and fetched release details die with the tab. Now that it runs on GitHub Pages, `localStorage` is available — this is the next job.
 4. iTunes song→album resolution can still pick a live/compilation release for ambiguous song-only rows; artist+karaoke filters exist but a confidence UI ("is this right?") would be better.
 5. Mixed-unit imports (playlist + play history in one session) sum plays and tracks together in the stats line.
 6. Price alerts, Discogs OAuth (sync wantlist/collection), Bandcamp/juno price scraping, and a "total crate cost by priority" planner are all unexplored.
