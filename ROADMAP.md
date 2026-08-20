@@ -11,7 +11,122 @@ always a save point. Ask before doing anything irreversible.
 
 ---
 
-## Phase 1 — Save my crate (highest value, smallest job)
+# DECISION — Crate is going commercial (recorded Aug 2026)
+
+Kaan's call, taken 2026-08-20. Roughly **3–6 months out**, so target window **Nov 2026 – Feb 2027**.
+
+- **Affiliate links only to start.** No user accounts, no payments, no checkout. A paid tier is
+  possible much later but is not being designed for now.
+- **Migrate off Discogs marketplace data and Apple artwork BEFORE monetising**, not after.
+- **Skip Last.fm entirely** — its API is non-commercial-only. ListenBrainz replaces it.
+
+**Status of the reasoning:** the clause-by-clause licensing research this decision refers to is
+NOT in this file and was not found anywhere in the repo or its history. The decision is recorded
+here as Kaan's, and the three claims below are what it rests on. Each is **UNVERIFIED** and must be
+checked against the live terms — with dates and quoted clauses written back into this file —
+before any money changes hands.
+
+| Claim the plan rests on | Status |
+|---|---|
+| Discogs marketplace data may not be used commercially | unverified — read the Discogs API terms |
+| Apple/iTunes artwork may not be used commercially | unverified — read the Apple Media Services terms |
+| Last.fm API is non-commercial only | unverified — read the Last.fm API terms |
+| MusicBrainz + Cover Art Archive are usable commercially | unverified — check the licence per dataset |
+| eBay Partner Network has an API, permits displaying prices, no traffic minimum | unverified — read the EPN agreement |
+
+Doing that reading is a task in its own right; it belongs before A2 lands, and it is not a coding
+job. Nothing below should be read as legal advice.
+
+**On pricing, specifically.** Discogs prices are fine to use TODAY, while Crate is non-commercial.
+So they stay — but behind an adapter (A4), so that at the moment of monetising, the price source
+flips to shop affiliate feeds without touching the UI. **eBay Partner Network is the first target**
+for that flip.
+
+---
+
+# A — Migration (do this first, in this order)
+
+Everything here is groundwork for going commercial. Nothing in B or C should be started until A is
+done, because A changes the data underneath both.
+
+## A1 — Cloudflare Worker proxy
+
+The one piece of server we allow ourselves, and the seam everything later hangs off.
+
+- Sets the `User-Agent` MusicBrainz requires — a browser cannot set that header itself, which is
+  the hard technical reason this step comes first.
+- Caches upstream responses, so repeat lookups cost nothing and stay inside rate limits.
+- Becomes the single place to later hold affiliate tokens, keys and any server-side logic, without
+  putting secrets in the page.
+- Free tier: 100,000 requests/day, no card needed.
+- **Watch:** every user then shares the worker's IP, so a per-IP upstream limit becomes a global
+  one. Caching is what makes this survivable — treat cache hit rate as the metric that matters.
+
+## A2 — Cover art: iTunes → Cover Art Archive
+
+- Resolve each album to a MusicBrainz **release-group MBID**, then take the sleeve from the Cover
+  Art Archive.
+- ListenBrainz already returns `caa_id` + `caa_release_mbid`, so imports from there need no lookup.
+- Keep `pumpArt()` — CAA queues hard, and handing out a few requests at a time is what made covers
+  appear at all (see CLAUDE.md invariant).
+- **Note:** Apple is also the source of song→album resolution and 30-second previews. Those are
+  separate uses from artwork and need their own decision — dropping artwork does not automatically
+  mean dropping previews.
+
+## A3 — Album and pressing data: Discogs search → MusicBrainz
+
+- Album identity and metadata from MusicBrainz **release-groups**; individual pressings from
+  MusicBrainz **releases**.
+- This is the biggest and riskiest step: `scoreRelease()`, the pressing picker and the detail panel
+  all assume Discogs' shapes.
+- Expect quality loss on format detail. Discogs is unusually rich on "180g / gatefold / coloured";
+  MusicBrainz is thinner. Measure before/after on ten real records rather than assuming parity.
+
+## A4 — Pricing behind a pluggable adapter
+
+- One interface, e.g. `priceSource.lookup(album) → {price, currency, url, inStock}`.
+- Discogs stays the implementation **for now** (legal while non-commercial).
+- At monetisation, swap in eBay Partner Network. Nothing in the UI should need to change — that is
+  the test of whether the adapter is right.
+
+## A5 — Remove the Last.fm import
+
+Note: this is a **removal**, not a build. The Last.fm import already shipped (Aug 2026) and works.
+Dropping it means deleting the UI block, the key field, `LFM_ERR`, and its tests, leaving
+ListenBrainz as the only scrobble source.
+
+---
+
+# B — Rebuild on the new foundation
+
+**These three already exist**, built Aug 2026 against Discogs and iTunes. They are listed here in
+Kaan's requested order because each will need re-pointing once A lands — not building from scratch.
+
+1. **Search overhaul** — shipped. Fuzzy/accent-tolerant crate filter, chips, keyboard, and a
+   Discogs fallback lookup. The fallback is the part A3/A4 changes.
+2. **Album detail panel** — shipped. Tracklist, label, catalogue number, format, genres, styles,
+   notes, have/want, rating, per-pressing prices. Most of this is Discogs-shaped; A3 rewrites its
+   data layer, and the format-detail fields are where quality loss will show first.
+3. **Voice / mic button** — shipped, and source-agnostic. A changes nothing here.
+
+---
+
+# C — Commercial preparation (last, and not before A)
+
+- `/disclosure` page — how Crate makes money, in plain words.
+- `/privacy` page — what is stored (currently nothing leaves the browser) and what the Worker logs.
+- **"Ad" or "Affiliate" labels** on every monetised link. Required by the FTC and the UK CMA, and
+  a condition of most affiliate programmes.
+- **Not-affiliated notice** — Crate is not affiliated with Discogs, MusicBrainz, Apple, eBay or any
+  shop listed.
+- **Accessibility pass** — keyboard paths, focus order, contrast, alt text, `prefers-reduced-motion`,
+  and the voice button's labelling. Worth doing before traffic arrives, not after.
+
+---
+
+## Still-standing work (unchanged by the commercial decision)
+
+### Save my crate
 
 Right now everything dies when the tab closes: owned/wishlist marks, fetched prices, the whole
 list. This is the single biggest gap in daily usability.
@@ -22,7 +137,7 @@ list. This is the single biggest gap in daily usability.
   because of an artifact-environment restriction; on GitHub Pages it's fine.)
 - Keep the CSV export as-is — it's for humans, JSON is for the app.
 
-## Phase 2 — Import listening history from any service  ✅ DONE (Aug 2026)
+### Import listening history  ✅ DONE (Aug 2026) — Last.fm half to be removed by A5
 
 Decision: **do NOT build direct Spotify OAuth.** Since Feb 2026, Spotify dev-mode apps require the
 owner to hold Premium and are capped at 5 users — unshippable for a public site. Instead use
@@ -53,7 +168,7 @@ is enough for public profiles.
 - Spotify GDPR export — accept the "Extended streaming history" JSON as a drag-and-drop format
   (free from Spotify account privacy settings, no API involved).
 
-## Phase 3 — Global shops (the big one)
+### Global shops — research below stays valid; the buy links become the affiliate surface
 
 Today the buy links are hardcoded UK shops. Make them geo-aware.
 
@@ -189,7 +304,7 @@ Many of these are Shopify — one `https://{domain}/search?q={q}` template cover
 
 ---
 
-## Phase 4 — Scale and polish
+### Scale and polish
 
 - **Virtualize the views.** Grid and Cover Flow render every album eagerly. Fine at 500, janky at
   2,000+ (full library imports). Needs windowing + incremental render.
@@ -202,7 +317,7 @@ Many of these are Shopify — one `https://{domain}/search?q={q}` template cover
   together in the header line.
 - **Mobile Cover Flow polish** — worth a real-device pass.
 
-## Phase 5 — Ideas not yet committed to
+### Ideas not yet committed to
 
 - Discogs OAuth: sync the user's real wantlist/collection instead of local owned-flags.
 - Price-drop alerts (needs a backend or a scheduled job — breaks the no-backend rule; think first).
