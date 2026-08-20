@@ -39,8 +39,9 @@ means most repeat traffic never counts against it.
 2. From this folder:
 
    ```
+   npm install
    npx wrangler login     # opens your browser to authorise
-   npx wrangler deploy
+   npm run deploy
    ```
 
 3. It prints an address like `https://crate-proxy.<your-subdomain>.workers.dev`.
@@ -64,7 +65,8 @@ more than anything else here: watch the `X-Crate-Cache` header.
 ## Testing it locally
 
 ```
-npx wrangler dev --port 8787 --local
+npm install
+npm run dev
 curl http://localhost:8787/health
 ```
 
