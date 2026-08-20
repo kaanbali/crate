@@ -1,0 +1,7 @@
+name = "crate-proxy"
+main = "src/worker.js"
+compatibility_date = "2026-08-01"
+
+# No KV, no D1, no bindings — this stays inside the free tier deliberately.
+# A Discogs token can be added later WITHOUT putting it in this file:
+#   npx wrangler secret put DISCOGS_TOKEN

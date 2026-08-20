@@ -448,6 +448,16 @@
         <label class="sm">Discogs personal access token (optional — never leaves this page)</label><br>
         <input type="text" id="token" placeholder="paste token here" autocomplete="off" spellcheck="false">
         <p style="margin:10px 0 0">Get one at <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener" style="color:var(--accent)">discogs.com/settings/developers</a> → “Generate token”.</p>
+
+        <hr style="border:none;border-top:2px dashed #EBDCC8;margin:16px 0">
+        <label class="sm" style="display:block">Crate proxy address (optional — see worker/README.md)</label>
+        <input type="text" id="proxy" placeholder="https://crate-proxy.<your-subdomain>.workers.dev" autocomplete="off" spellcheck="false">
+        <div class="row" style="margin-top:10px">
+          <button class="ghost mini" id="proxyCheck">Check it works</button>
+          <label class="sm"><input type="checkbox" id="proxyDg"> send Discogs through it too</label>
+        </div>
+        <p class="sm" id="proxyMsg" style="margin:10px 0 0"></p>
+        <p style="margin:8px 0 0">The proxy sets the identifying header MusicBrainz requires and caches replies, so repeat lookups are free. Without it, Crate calls the music services directly, exactly as before.</p>
       </div>
     </details>
   </div>
@@ -949,13 +959,74 @@ function queueEnrichment(){
 }
 
 /* ---------------- vinyl lookup (Discogs) ---------------- */
+/* ---------------- the proxy seam ---------------- */
+/* Crate still runs entirely in the page. The Worker is optional: it exists
+   because a browser cannot set the User-Agent MusicBrainz insists on, and
+   because caching replies there keeps everyone inside the rate limits.
+   Empty setting = every call goes direct, exactly as it did before. */
+function proxyBase(){
+  return $("proxy").value.trim().replace(/\/+$/, "");
+}
+
+function px(route, path, search){
+  const base = proxyBase();
+  if (!base) return null;
+  return `${base}/${route}/${String(path).replace(/^\/+/, "")}${search || ""}`;
+}
+
+/* MusicBrainz asks for one request a second, and won't answer a browser at all
+   without an identifying header — so this path only works through the proxy. */
+let mbQ = makeQueue(1100);
+function mb(path, search){
+  const url = px("mb", path, search);
+  if (!url) return Promise.reject(new Error("MusicBrainz needs the proxy — set its address in Speed & settings."));
+  return mbQ(async () => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("http " + r.status);
+    return r.json();
+  });
+}
+
+/* Cover Art Archive images: a plain URL, through the proxy when there is one
+   so the cache in front of it does the work. */
+function caaUrl(mbid, caaId, size){
+  const path = `release/${mbid}/${caaId}-${size || 250}.jpg`;
+  return px("caa", path) || `https://coverartarchive.org/${path}`;
+}
+
+async function proxyHealth(){
+  const base = proxyBase();
+  if (!base) return void ($("proxyMsg").textContent = "No address set — Crate is calling the services directly.");
+  $("proxyCheck").disabled = true;
+  $("proxyMsg").textContent = "Checking…";
+  try{
+    const r = await fetch(base + "/health");
+    const d = await r.json();
+    $("proxyMsg").textContent = d && d.ok
+      ? `Working. Routes available: ${(d.routes || []).join(", ")}.`
+      : "Reached it, but it didn't answer as expected.";
+  } catch(e){
+    $("proxyMsg").textContent = "Couldn't reach that address. Check it's deployed and the address is right.";
+  } finally {
+    $("proxyCheck").disabled = false;
+  }
+}
+
+$("proxyCheck").addEventListener("click", proxyHealth);
+
 function dgHeaders(){
   const t = $("token").value.trim();
   return t ? {Authorization: "Discogs token=" + t} : {};
 }
+function dgUrl(url){
+  if (!$("proxyDg").checked) return url;
+  const via = px("discogs", url.replace(/^https:\/\/api\.discogs\.com\//, ""));
+  return via || url;
+}
+
 async function dgRaw(url, tries){
   tries = tries || 0;
-  const r = await fetch(url, {headers: dgHeaders()});
+  const r = await fetch(dgUrl(url), {headers: dgHeaders()});
   if (r.status === 429 && tries < 2){
     await new Promise(res => setTimeout(res, 12000));
     return dgRaw(url, tries + 1);
